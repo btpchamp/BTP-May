@@ -168,3 +168,16 @@
 - d) Space
 
 ---
+
+#### Challenge: Name That Component
+
+I'll describe what a component does. You name it!
+
+1. "I receive the developer's code when they type `cf push`" → _____________
+2. "I figure out what programming language you used" → _____________
+3. "I decide which physical machine should run your app" → _____________
+4. "I send web traffic to the right application container" → _____________
+5. "I restart your app automatically if it crashes" → _____________
+6. "I create database instances when you request them" → _____________
+7. "I check your password and issue you a token" → _____________
+
