@@ -1,27 +1,25 @@
+### Practice: Create `datatypes.js` (5 minutes)
+
 ```javascript
-// 1. Declare variables using let and const
-let myName = "YOUR NAME HERE";
-let myAge = 22;
-const courseTitle = "SAP CAP Training";
-const trainingDuration = 45;
+// Explore all data types:
+let myString = "SAP CAP Developer";
+let myNumber = 45;
+let myDecimal = 99.99;
+let myBoolean = true;
+let myNull = null;
+let myUndefined;
+let myObject = { name: "CAP", version: 7 };
 
-// 2. Print them
-console.log("Name:", myName);
-console.log("Age:", myAge);
-console.log("Course:", courseTitle);
-console.log("Duration:", trainingDuration, "days");
+// Print each with its type:
+console.log(myString, "→", typeof myString);
+console.log(myNumber, "→", typeof myNumber);
+console.log(myDecimal, "→", typeof myDecimal);
+console.log(myBoolean, "→", typeof myBoolean);
+console.log(myNull, "→", typeof myNull);         // Watch for the bug!
+console.log(myUndefined, "→", typeof myUndefined);
+console.log(myObject, "→", typeof myObject);
 
-// 3. Try to change them
-myAge = 23;  // ✅ This works (let can be reassigned)
-console.log("Updated age:", myAge);
-
-// 4. Try to change a const (uncomment to see the error)
-// courseTitle = "Something else";  // ❌ This will crash!
-
-// 5. Scope experiment
-if (true) {
-  let blockVariable = "I only exist here";
-  console.log("Inside block:", blockVariable);
-}
-// console.log("Outside block:", blockVariable);  // ❌ Error!
+// Fun experiment:
+console.log(typeof NaN);           // What do you expect?
+console.log(typeof typeof 42);     // typeof always returns a string!
 ```
