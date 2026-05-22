@@ -1,25 +1,31 @@
-### Practice: Create `datatypes.js` (5 minutes)
+### Exercise Set 3: Build a Student Profile (15 minutes)
+
+Create `exercise3.js`:
 
 ```javascript
-// Explore all data types:
-let myString = "SAP CAP Developer";
-let myNumber = 45;
-let myDecimal = 99.99;
-let myBoolean = true;
-let myNull = null;
-let myUndefined;
-let myObject = { name: "CAP", version: 7 };
+// EXERCISE 3: Create a complete student profile using correct data types
 
-// Print each with its type:
-console.log(myString, "→", typeof myString);
-console.log(myNumber, "→", typeof myNumber);
-console.log(myDecimal, "→", typeof myDecimal);
-console.log(myBoolean, "→", typeof myBoolean);
-console.log(myNull, "→", typeof myNull);         // Watch for the bug!
-console.log(myUndefined, "→", typeof myUndefined);
-console.log(myObject, "→", typeof myObject);
+// TODO: Declare these variables with appropriate types:
+// 1. Student's full name (string)
+// 2. Student's age (number)
+// 3. Student's GPA (decimal number)
+// 4. Is the student currently enrolled? (boolean)
+// 5. Student's graduation date (null — hasn't graduated yet)
+// 6. Student's favorite subjects (object with 3 subjects and their scores)
 
-// Fun experiment:
-console.log(typeof NaN);           // What do you expect?
-console.log(typeof typeof 42);     // typeof always returns a string!
+// YOUR CODE HERE:
+
+
+
+
+// Print a formatted profile:
+// Expected output:
+// === Student Profile ===
+// Name: [name]
+// Age: [age]
+// GPA: [gpa]
+// Enrolled: [true/false]
+// Graduated: [null or date]
+// Subjects: [object]
+// =======================
 ```
