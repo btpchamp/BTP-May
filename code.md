@@ -1,76 +1,198 @@
-### Exercise 2: Implement Callback Patterns (15 minutes)
+### Hands-on: Build a Mini Library System (20 minutes)
+
+Create `library.js`:
 
 ```javascript
-// EXERCISE: Build a data processing pipeline using callbacks
+// ============================================
+//  MINI LIBRARY MANAGEMENT SYSTEM
+//  Using Classes, Error Handling, and Closures
+// ============================================
 
-// Given this data:
-const orders = [
-  { id: "ORD-001", customer: "Acme Corp", amount: 15000, status: "pending" },
-  { id: "ORD-002", customer: "Beta Inc", amount: 8000, status: "approved" },
-  { id: "ORD-003", customer: "Gamma Ltd", amount: 52000, status: "pending" },
-  { id: "ORD-004", customer: "Delta Co", amount: 3000, status: "rejected" },
-  { id: "ORD-005", customer: "Epsilon SA", amount: 95000, status: "pending" }
-];
+class Book {
+  constructor(title, author, isbn, copies = 1) {
+    if (!title || !author || !isbn) {
+      throw new Error("Title, author, and ISBN are required");
+    }
+    this.title = title;
+    this.author = author;
+    this.isbn = isbn;
+    this.totalCopies = copies;
+    this.availableCopies = copies;
+    this.borrowHistory = [];
+  }
+  
+  getInfo() {
+    return `"${this.title}" by ${this.author} [${this.isbn}] — ${this.availableCopies}/${this.totalCopies} available`;
+  }
+}
 
-// TASK 1: Create a function 'processOrders' that takes:
-// - an array of orders
-// - a filter callback (which orders to include)
-// - a transform callback (how to change each order)
-// - a summary callback (what to do with the final result)
+class Member {
+  constructor(name, memberId) {
+    this.name = name;
+    this.memberId = memberId;
+    this.borrowedBooks = [];
+    this.borrowLimit = 3;
+  }
+  
+  canBorrow() {
+    return this.borrowedBooks.length < this.borrowLimit;
+  }
+}
 
-const processOrders = (orderList, filterFn, transformFn, summaryFn) => {
-  // Your code: filter → transform → summary
-};
+class Library {
+  constructor(name) {
+    this.name = name;
+    this.books = [];
+    this.members = [];
+    this.transactions = [];
+  }
+  
+  // Add a book to the library
+  addBook(title, author, isbn, copies) {
+    const existing = this.books.find(b => b.isbn === isbn);
+    if (existing) {
+      existing.totalCopies += copies;
+      existing.availableCopies += copies;
+      return `Updated: "${title}" now has ${existing.totalCopies} copies`;
+    }
+    const book = new Book(title, author, isbn, copies);
+    this.books.push(book);
+    return `Added: "${title}" (${copies} copies)`;
+  }
+  
+  // Register a new member
+  addMember(name) {
+    const id = `MEM-${String(this.members.length + 1).padStart(3, "0")}`;
+    const member = new Member(name, id);
+    this.members.push(member);
+    return `Welcome, ${name}! Your ID: ${id}`;
+  }
+  
+  // Borrow a book
+  borrowBook(memberId, isbn) {
+    const member = this.members.find(m => m.memberId === memberId);
+    if (!member) throw new Error(`Member ${memberId} not found`);
+    
+    const book = this.books.find(b => b.isbn === isbn);
+    if (!book) throw new Error(`Book with ISBN ${isbn} not found`);
+    
+    if (!member.canBorrow()) {
+      throw new Error(`${member.name} has reached the borrow limit (${member.borrowLimit} books)`);
+    }
+    
+    if (book.availableCopies <= 0) {
+      throw new Error(`"${book.title}" is not available. All copies are borrowed.`);
+    }
+    
+    // Process borrow:
+    book.availableCopies--;
+    member.borrowedBooks.push(isbn);
+    book.borrowHistory.push({ memberId, date: new Date().toISOString(), action: "borrow" });
+    
+    this.transactions.push({
+      type: "BORROW",
+      memberId,
+      isbn,
+      date: new Date().toISOString()
+    });
+    
+    return `✅ ${member.name} borrowed "${book.title}" (${book.availableCopies} copies remaining)`;
+  }
+  
+  // Return a book
+  returnBook(memberId, isbn) {
+    const member = this.members.find(m => m.memberId === memberId);
+    if (!member) throw new Error(`Member ${memberId} not found`);
+    
+    const book = this.books.find(b => b.isbn === isbn);
+    if (!book) throw new Error(`Book with ISBN ${isbn} not found`);
+    
+    const borrowIndex = member.borrowedBooks.indexOf(isbn);
+    if (borrowIndex === -1) {
+      throw new Error(`${member.name} hasn't borrowed "${book.title}"`);
+    }
+    
+    // Process return:
+    book.availableCopies++;
+    member.borrowedBooks.splice(borrowIndex, 1);
+    book.borrowHistory.push({ memberId, date: new Date().toISOString(), action: "return" });
+    
+    this.transactions.push({
+      type: "RETURN",
+      memberId,
+      isbn,
+      date: new Date().toISOString()
+    });
+    
+    return `✅ ${member.name} returned "${book.title}" (${book.availableCopies} copies available)`;
+  }
+  
+  // Search books
+  searchBooks(query) {
+    const q = query.toLowerCase();
+    return this.books.filter(b => 
+      b.title.toLowerCase().includes(q) || 
+      b.author.toLowerCase().includes(q)
+    );
+  }
+  
+  // Get library stats
+  getStats() {
+    return {
+      totalBooks: this.books.length,
+      totalCopies: this.books.reduce((sum, b) => sum + b.totalCopies, 0),
+      availableCopies: this.books.reduce((sum, b) => sum + b.availableCopies, 0),
+      totalMembers: this.members.length,
+      totalTransactions: this.transactions.length
+    };
+  }
+  
+  // Display all books
+  displayBooks() {
+    console.log(`\n📚 ${this.name} — Book Catalog:`);
+    console.log("─".repeat(70));
+    this.books.forEach(book => console.log(`  ${book.getInfo()}`));
+    console.log("─".repeat(70));
+  }
+}
 
-// TASK 2: Use processOrders to:
-// a) Get total amount of all pending orders over ₹10000
-// b) Get a list of approved customer names in uppercase
-// c) Get count of orders by status
+// ========== TEST THE LIBRARY ==========
 
-// Example call for (a):
-processOrders(
-  orders,
-  order => order.status === "pending" && order.amount > 10000,
-  order => order.amount,
-  amounts => console.log(`Total pending (>₹10k): ₹${amounts.reduce((s,a) => s+a, 0)}`)
-);
-```
+const lib = new Library("SAP Academy Library");
 
-### Exercise 3: Closure Challenge (10 minutes)
+// Add books:
+console.log(lib.addBook("Clean Code", "Robert Martin", "978-0132350884", 3));
+console.log(lib.addBook("JavaScript: The Good Parts", "Douglas Crockford", "978-0596517748", 2));
+console.log(lib.addBook("Design Patterns", "Gang of Four", "978-0201633610", 1));
+console.log(lib.addBook("Node.js in Action", "Mike Cantelon", "978-1617290572", 4));
 
-```javascript
-// EXERCISE: Build these closure-based utilities
+// Add members:
+console.log(lib.addMember("Priya Sharma"));
+console.log(lib.addMember("Rahul Kumar"));
 
-// 1. createIdGenerator — generates sequential IDs with a prefix
-// Usage:
-//   const poIdGen = createIdGenerator("PO");
-//   poIdGen() → "PO-001"
-//   poIdGen() → "PO-002"
-//   poIdGen() → "PO-003"
+// Display catalog:
+lib.displayBooks();
 
-const createIdGenerator = (prefix) => {
-  // Your code here
-};
+// Borrow books:
+try {
+  console.log(lib.borrowBook("MEM-001", "978-0132350884"));
+  console.log(lib.borrowBook("MEM-001", "978-0596517748"));
+  console.log(lib.borrowBook("MEM-002", "978-0132350884"));
+  
+  // Try borrowing unavailable book:
+  // console.log(lib.borrowBook("MEM-002", "978-0201633610"));
+  // console.log(lib.borrowBook("MEM-002", "978-0201633610"));  // Would fail!
+} catch (error) {
+  console.log(`❌ Error: ${error.message}`);
+}
 
-// 2. createLogger — logs messages with a component name and timestamp
-// Usage:
-//   const dbLogger = createLogger("Database");
-//   dbLogger("Connected");     → "[Database] 10:30:45 - Connected"
-//   dbLogger("Query executed"); → "[Database] 10:30:46 - Query executed"
+// Return a book:
+console.log(lib.returnBook("MEM-001", "978-0132350884"));
 
-const createLogger = (component) => {
-  // Your code here
-};
+// Search:
+console.log("\n🔍 Search results for 'java':");
+lib.searchBooks("java").forEach(b => console.log(`  ${b.getInfo()}`));
 
-// 3. createCache — simple key-value cache with hit tracking
-// Usage:
-//   const cache = createCache();
-//   cache.set("user1", {name: "Priya"});
-//   cache.get("user1"); → {name: "Priya"}
-//   cache.get("user2"); → undefined
-//   cache.stats(); → {size: 1, hits: 1, misses: 1}
-
-const createCache = () => {
-  // Your code here
-};
+// Stats:
+console.log("\n📊 Library Stats:", lib.getStats());
 ```
