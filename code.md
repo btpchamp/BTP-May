@@ -35,3 +35,42 @@ processOrders(
   amounts => console.log(`Total pending (>₹10k): ₹${amounts.reduce((s,a) => s+a, 0)}`)
 );
 ```
+
+### Exercise 3: Closure Challenge (10 minutes)
+
+```javascript
+// EXERCISE: Build these closure-based utilities
+
+// 1. createIdGenerator — generates sequential IDs with a prefix
+// Usage:
+//   const poIdGen = createIdGenerator("PO");
+//   poIdGen() → "PO-001"
+//   poIdGen() → "PO-002"
+//   poIdGen() → "PO-003"
+
+const createIdGenerator = (prefix) => {
+  // Your code here
+};
+
+// 2. createLogger — logs messages with a component name and timestamp
+// Usage:
+//   const dbLogger = createLogger("Database");
+//   dbLogger("Connected");     → "[Database] 10:30:45 - Connected"
+//   dbLogger("Query executed"); → "[Database] 10:30:46 - Query executed"
+
+const createLogger = (component) => {
+  // Your code here
+};
+
+// 3. createCache — simple key-value cache with hit tracking
+// Usage:
+//   const cache = createCache();
+//   cache.set("user1", {name: "Priya"});
+//   cache.get("user1"); → {name: "Priya"}
+//   cache.get("user2"); → undefined
+//   cache.stats(); → {size: 1, hits: 1, misses: 1}
+
+const createCache = () => {
+  // Your code here
+};
+```
