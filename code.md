@@ -1,38 +1,21 @@
 ## Node.js Core Modules
 
-### fs
 
-### 1. `fs` — File System Module
+### 3. `http` — Create a Web Server
 
-Read, write, delete, and manage files:
+Node.js can create a web server with ZERO external packages:
 
 ```javascript
-const fs = require('fs').promises;  // Use promises version!
+const http = require('http');
 
-// Read a file:
-const content = await fs.readFile('data.txt', 'utf8');
+const server = http.createServer((request, response) => {
+  // 'request' = what the client sent (URL, method, headers)
+  // 'response' = what we send back
+  
+  response.writeHead(200, { 'Content-Type': 'application/json' });
+  response.end(JSON.stringify({ message: "Hello from Node.js!", time: new Date() }));
+});
 
-// Write a file:
-await fs.writeFile('output.txt', 'Hello World!');
-
-// Append to a file:
-await fs.appendFile('log.txt', 'New log entry\n');
-
-// Check if file exists:
-try {
-  await fs.access('config.json');
-  console.log("File exists!");
-} catch {
-  console.log("File not found");
-}
-
-// Delete a file:
-await fs.unlink('temp.txt');
-
-// Create a directory:
-await fs.mkdir('new-folder', { recursive: true });
-
-// List files in directory:
-const files = await fs.readdir('.');
-console.log(files);
-```
+server.listen(3000, () => {
+  console.log("🚀 Server running at http://localhost:3000");
+});
