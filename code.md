@@ -1,30 +1,38 @@
-### Activity 1: Initialize Your First Node.js Project (10 minutes)
+## Node.js Core Modules
 
-```bash
-# Create project folder:
-mkdir ~/cap-training/day9-project
-cd ~/cap-training/day9-project
+### fs
 
-# Initialize with npm:
-npm init -y
+### 1. `fs` — File System Module
 
-# Look at what was created:
-cat package.json
-```
+Read, write, delete, and manage files:
 
-Now install some packages:
+```javascript
+const fs = require('fs').promises;  // Use promises version!
 
-```bash
-# Install a date formatting library:
-npm install dayjs
+// Read a file:
+const content = await fs.readFile('data.txt', 'utf8');
 
-# Install a color library for console output:
-npm install chalk@4
+// Write a file:
+await fs.writeFile('output.txt', 'Hello World!');
 
-# Install a dev-only testing tool:
-npm install --save-dev jest
+// Append to a file:
+await fs.appendFile('log.txt', 'New log entry\n');
 
-# Check what's in your folder:
-ls node_modules/    # See all installed packages
-cat package.json    # See dependencies added
+// Check if file exists:
+try {
+  await fs.access('config.json');
+  console.log("File exists!");
+} catch {
+  console.log("File not found");
+}
+
+// Delete a file:
+await fs.unlink('temp.txt');
+
+// Create a directory:
+await fs.mkdir('new-folder', { recursive: true });
+
+// List files in directory:
+const files = await fs.readdir('.');
+console.log(files);
 ```
