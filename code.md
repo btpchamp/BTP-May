@@ -1,21 +1,28 @@
-## Node.js Core Modules
-
-
-### 3. `http` — Create a Web Server
-
-Node.js can create a web server with ZERO external packages:
+#### Handling Different Routes (Raw Node.js)
 
 ```javascript
 const http = require('http');
 
-const server = http.createServer((request, response) => {
-  // 'request' = what the client sent (URL, method, headers)
-  // 'response' = what we send back
+const server = http.createServer((req, res) => {
+  res.setHeader('Content-Type', 'application/json');
   
-  response.writeHead(200, { 'Content-Type': 'application/json' });
-  response.end(JSON.stringify({ message: "Hello from Node.js!", time: new Date() }));
+  if (req.url === '/' && req.method === 'GET') {
+    res.writeHead(200);
+    res.end(JSON.stringify({ message: "Welcome to our API!" }));
+    
+  } else if (req.url === '/products' && req.method === 'GET') {
+    res.writeHead(200);
+    res.end(JSON.stringify({ products: ["Laptop", "Mouse", "Keyboard"] }));
+    
+  } else if (req.url === '/health' && req.method === 'GET') {
+    res.writeHead(200);
+    res.end(JSON.stringify({ status: "healthy", uptime: process.uptime() }));
+    
+  } else {
+    res.writeHead(404);
+    res.end(JSON.stringify({ error: "Not Found" }));
+  }
 });
 
-server.listen(3000, () => {
-  console.log("🚀 Server running at http://localhost:3000");
-});
+server.listen(3000, () => console.log("Server on port 3000"));
+```
