@@ -1,28 +1,31 @@
-#### Handling Different Routes (Raw Node.js)
+### Setting Up Express
+
+```bash
+# Create project:
+mkdir book-api && cd book-api
+npm init -y
+npm install express
+```
+
+Create `server.js`:
 
 ```javascript
-const http = require('http');
+const express = require('express');
+const app = express();
 
-const server = http.createServer((req, res) => {
-  res.setHeader('Content-Type', 'application/json');
-  
-  if (req.url === '/' && req.method === 'GET') {
-    res.writeHead(200);
-    res.end(JSON.stringify({ message: "Welcome to our API!" }));
-    
-  } else if (req.url === '/products' && req.method === 'GET') {
-    res.writeHead(200);
-    res.end(JSON.stringify({ products: ["Laptop", "Mouse", "Keyboard"] }));
-    
-  } else if (req.url === '/health' && req.method === 'GET') {
-    res.writeHead(200);
-    res.end(JSON.stringify({ status: "healthy", uptime: process.uptime() }));
-    
-  } else {
-    res.writeHead(404);
-    res.end(JSON.stringify({ error: "Not Found" }));
-  }
+// Middleware: Parse JSON request bodies
+app.use(express.json());
+
+// Route: GET /
+app.get('/', (req, res) => {
+  res.json({ message: "Welcome to the Book API! 📚" });
 });
 
-server.listen(3000, () => console.log("Server on port 3000"));
+// Start server:
+const PORT = 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running at http://localhost:${PORT}`);
+});
 ```
+
+Run: `node server.js` → Open `http://localhost:3000`
