@@ -2,10 +2,10 @@
 
 ### Step 1: Create the Project
 
+### Make sure you are in the `Project` folder in your terminal.
+
 ```bash
 # Navigate to your training folder:
-cd ~/cap-training
-
 # Create a new CAP project:
 cds init my-first-cap
 
@@ -13,6 +13,8 @@ cds init my-first-cap
 cd my-first-cap
 
 ```
+
+### once create open the project from File -> Oen folder -> Project -> Your cap project
 
 **What just happened?** `cds init` created a complete project structure with everything you need!
 
