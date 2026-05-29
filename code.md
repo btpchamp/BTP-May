@@ -1,4 +1,4 @@
-## Session 3: Hands-on — Create Your First CAP Project (13:30 - 14:30)
+## Session 3: Hands-on — Create Your First CAP Project (11:30 - 12:30)
 
 ### Step 1: Create the Project
 
