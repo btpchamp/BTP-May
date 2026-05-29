@@ -1,187 +1,257 @@
-## What You'll Learn Today
+## Session 3: Hands-on — Create Your First CAP Project (12:00 - 13:00)
 
-By the end of this session, you will be able to:
-- Explain WHY SAP CAP exists and what problems it solves
-- Compare CAP with traditional Node.js/Express development
-- Describe CAP architecture (CDS, Services, Runtime)
-- Differentiate between CAP and RAP (ABAP-based approach)
-- Create a CAP project from scratch using `cds init`
-- Understand every file and folder in a CAP project
-- Run a CAP app locally with `cds watch`
-- Write your first CDS file
+### Step 1: Create the Project
+
+```bash
+# Navigate to your training folder:
+cd ~/cap-training
+
+# Create a new CAP project:
+cds init my-first-cap
+
+# Enter the project:
+cd my-first-cap
+
+```
+
+**What just happened?** `cds init` created a complete project structure with everything you need!
 
 ---
 
-## Welcome to Week 3! (09:00 - 09:15)
+### Step 2: Explore What Was Created
 
-### The Journey So Far
-
-```
-Week 1: SAP BTP Foundations (Cloud, Architecture, Tools)
-Week 2: JavaScript & Node.js (Language + Express + REST APIs)
-                    ↓
-Week 3: NOW — SAP CAP Framework (The Main Event!) ⭐
+```bash
+# See the project structure:
+ls -la
 ```
 
-### What Changes This Week
-
-| Week 2 (What you did) | Week 3 (What CAP does for you) |
-|----------------------|-------------------------------|
-| Wrote 100+ lines for a REST API | CAP generates APIs from 5 lines of CDS |
-| Manual routing with Express | Automatic OData endpoints |
-| Manual database queries | Declarative data model → auto database |
-| Manual input validation | Built-in validations |
-| Manual authentication code | One annotation: `@requires: 'admin'` |
-| Manual CRUD handlers | Generated automatically |
-
-**Week 3 will feel like magic.** Everything you struggled with in Express.js — CAP does it in a few lines.
-
----
-
-## Session 1: Why CAP? Problems It Solves (09:15 - 10:30)
-
-### The Problem: Building Enterprise Apps Is HARD
-
-Imagine you're building a Purchase Order app for a company. Here's what you need:
+You should see:
 
 ```
-WITHOUT a framework (plain Node.js/Express):
-─────────────────────────────────────────
-✗ Design database schema (SQL)
-✗ Write migration scripts
-✗ Build REST/OData endpoints manually
-✗ Implement CRUD for every entity
-✗ Add input validation
-✗ Add authentication (OAuth, JWT)
-✗ Add authorization (roles, permissions)
-✗ Handle draft/edit scenarios
-✗ Add localization (multi-language)
-✗ Add multi-tenancy (SaaS)
-✗ Connect to SAP S/4HANA
-✗ Deploy to Cloud Foundry
-✗ Configure HANA database
-✗ Build Fiori UI annotations
-
-Effort: 3-6 months for a senior team
-Lines of code: 10,000+
-```
-
-```
-WITH SAP CAP:
-─────────────
-✓ Define data model in CDS (20 lines)
-✓ Define service in CDS (10 lines)
-✓ Add custom logic in JS (where needed)
-✓ Everything else is AUTOMATIC!
-
-Effort: 2-4 weeks
-Lines of code: 500-1000
+my-first-cap/
+├── app/              ← Frontend/UI code goes here (empty for now)
+├── db/               ← Database models (CDS files) go here
+├── srv/              ← Service definitions and logic go here
+├── package.json      ← Project config (Node.js)
+└── README.md         ← Project documentation
 ```
 
 ---
 
-### What is SAP CAP?
+### Step 3: Look at package.json
 
-**CAP** = **C**loud **A**pplication **P**rogramming Model
-
-It's SAP's **opinionated framework** for building enterprise-grade cloud applications. Think of it as a "super-powered Express.js" designed specifically for business applications on SAP BTP.
-
-```
-CAP = CDS (define WHAT) + Runtime (does HOW) + Best Practices (knows WHY)
+```bash
+cat package.json
 ```
 
-**Analogy:**
-- Express.js = a blank canvas and paint (you decide everything)
-- SAP CAP = a paint-by-numbers kit (structure is provided, you add creativity where needed)
+```json
+{
+  "name": "my-first-cap",
+  "version": "1.0.0",
+  "description": "A simple CAP project.",
+  "repository": "<Add your repository here>",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@sap/cds": "^7",
+  },
+  "devDependencies": {
+    "@sap/cds-dk": "^7"
+  },
+  "scripts": {
+    "start": "cds-serve",
+    "watch": "cds watch"
+  }
+}
+```
+
+**Key observations:**
+- `@sap/cds` is a dependency (the runtime)
+- `@sap/cds-dk` is a devDependency (development tools)
+- Scripts: `start` for production, `watch` for development
 
 ---
 
-### CAP's Core Philosophy
+### Step 4: Install Dependencies
 
-| Principle | What It Means | Benefit |
-|-----------|-------------|---------|
-| **Convention over Configuration** | Follow standard patterns, less setup | Less boilerplate, faster development |
-| **Declarative over Imperative** | Describe WHAT you want, not HOW to do it | Shorter code, fewer bugs |
-| **Focus on Domain** | Write business logic, not plumbing | Developer productivity |
-| **Grow as You Go** | Start simple, add complexity only when needed | No over-engineering |
-| **Open Standards** | Based on OData, SQL, REST, JSON | Interoperability |
+```bash
+npm install
+```
+
+This downloads `@sap/cds`, `express`, and all their sub-dependencies into `node_modules/`.
 
 ---
 
-### Problems CAP Solves
+### Step 5: Create Your First Data Model
 
-#### Problem 1: Repetitive CRUD Code
+Create a new file `db/schema.cds`:
 
-```javascript
-// WITHOUT CAP — Express.js (you write ALL of this):
-app.get('/products', async (req, res) => { /* query DB, format, return */ });
-app.get('/products/:id', async (req, res) => { /* find one, 404 check, return */ });
-app.post('/products', async (req, res) => { /* validate, insert, return 201 */ });
-app.put('/products/:id', async (req, res) => { /* validate, update, return */ });
-app.delete('/products/:id', async (req, res) => { /* find, delete, return */ });
-// × 10 entities = 50 route handlers, 500+ lines of boilerplate!
+```cds
+namespace my.bookshop;
+
+entity Books {
+  key ID    : Integer;
+  title     : String(100);
+  author    : String(100);
+  price     : Decimal(10,2);
+  stock     : Integer;
+  category  : String(50);
+}
+
+entity Authors {
+  key ID    : Integer;
+  name      : String(100);
+  country   : String(50);
+}
 ```
 
-```javascript
-// WITH CAP — just define the service:
+---
+
+### Step 6: Create Your First Service
+
+Create a new file `srv/catalog-service.cds`:
+
+```cds
+using my.bookshop from '../db/schema';
+
 service CatalogService {
-  entity Products as projection on db.Products;
+  entity Books as projection on bookshop.Books;
+  entity Authors as projection on bookshop.Authors;
 }
-// DONE! All CRUD endpoints generated automatically.
-// GET, POST, PUT, PATCH, DELETE — all working!
 ```
 
-#### Problem 2: Database Schema + Migration
+**That's it! Three lines to create a full REST API with CRUD for Books and Authors!**
 
-```javascript
-// WITHOUT CAP:
-// - Write CREATE TABLE SQL
-// - Write ALTER TABLE for changes
-// - Track migrations
-// - Handle SQLite (dev) vs HANA (prod) differences
+---
 
-// WITH CAP:
-entity Products {
-  key ID : UUID;
-  name   : String(100);
-  price  : Decimal(10,2);
-  stock  : Integer;
-}
-// CAP generates SQL for SQLite (local) AND HANA (production) automatically!
+### Step 7: Add Sample Data
+
+Create a file `db/data/my.bookshop-Books.csv`:
+
+```csv
+ID,title,author,price,stock,category
+1,Clean Code,Robert Martin,450,20,Programming
+2,The Pragmatic Programmer,David Thomas,550,15,Programming
+3,Sapiens,Yuval Noah Harari,400,30,History
+4,Atomic Habits,James Clear,350,50,Self-Help
+5,Node.js Design Patterns,Mario Casciaro,600,10,Programming
 ```
 
-#### Problem 3: Authentication & Authorization
+Create a file `db/data/my.bookshop-Authors.csv`:
 
-```javascript
-// WITHOUT CAP:
-// - Configure XSUAA manually
-// - Parse JWT tokens
-// - Check roles in every route handler
-// - Handle token refresh
-
-// WITH CAP — one line:
-service AdminService @(requires: 'admin') {
-  entity Products as projection on db.Products;
-}
-// Done! Only users with 'admin' role can access this service.
+```csv
+ID,name,country
+1,Robert Martin,USA
+2,David Thomas,USA
+3,Yuval Noah Harari,Israel
+4,James Clear,USA
+5,Mario Casciaro,Italy
 ```
 
-#### Problem 4: Connecting to SAP Systems
+**Naming convention:** `<namespace>-<EntityName>.csv` — CAP auto-loads these!
 
-```javascript
-// WITHOUT CAP:
-// - Download API spec from SAP API Hub
-// - Write HTTP client code
-// - Handle OAuth token flow
-// - Map response data to your model
-// - Handle errors, retries, timeouts
+---
 
-// WITH CAP:
-// Just import the external service definition:
-using { API_BUSINESS_PARTNER } from './external/API_BUSINESS_PARTNER';
+### Step 8: Run It!
 
-service MyService {
-  entity Suppliers as projection on API_BUSINESS_PARTNER.A_BusinessPartner;
-}
-// CAP handles authentication, connection, error handling!
+```bash
+cds watch
 ```
+
+**Expected output:**
+
+```
+[cds] - loaded model from 2 file(s):
+
+  srv/catalog-service.cds
+  db/schema.cds
+
+[cds] - connect to db > sqlite { database: ':memory:' }
+  > init from db/data/my.bookshop-Books.csv
+  > init from db/data/my.bookshop-Authors.csv
+[cds] - serving CatalogService { path: '/catalog' }
+
+[cds] - server listening on { url: 'http://localhost:4004' }
+[cds] - [ terminate with ^C ]
+```
+
+---
+
+### Step 9: Test It!
+
+Open your browser: **http://localhost:4004**
+
+You'll see a welcome page listing available services and entities:
+
+```
+Welcome to cds.services
+
+Service Endpoints:
+  /catalog - CatalogService
+    /catalog/Books
+    /catalog/Authors
+```
+
+**Try these URLs:**
+## Create a new file `test.http` in the  project root folder
+
+| URL | What It Returns |
+|-----|----------------|
+| `http://localhost:4004/odata/v4/catalog/Books` | All books (JSON) |
+| `http://localhost:4004/odata/v4/catalog/Books?$filter=price gt 400` | Books over ₹400 |
+| `http://localhost:4004/odata/v4/catalog/Books?$orderby=price desc` | Sorted by price |
+| `http://localhost:4004/odata/v4/catalog/Books?$top=3` | First 3 books |
+| `http://localhost:4004/odata/v4/catalog/Books?$select=title,price` | Only title and price |
+| `http://localhost:4004/odata/v4/catalog/Authors` | All authors |
+| `http://localhost:4004/odata/v4/catalog/$metadata` | OData metadata (XML) |
+
+**All of this from ~15 lines of CDS code!** No Express routes, no SQL queries, no manual parsing.
+
+---
+
+### Step 10: Test with REST Client
+
+Create `test.http` in your project root:
+
+```http
+### Get all books
+GET http://localhost:4004/odata/v4/catalog/Books
+
+### Get books filtered by category
+GET http://localhost:4004/odata/v4/catalog/Books?$filter=category eq 'Programming'
+
+### Get a specific book
+GET http://localhost:4004/odata/v4/catalog/Books(1)
+
+### Create a new book
+POST http://localhost:4004/odata/v4/catalog/Books
+Content-Type: application/json
+
+{
+  "ID": 6,
+  "title": "Learning SAP CAP",
+  "author": "SAP Team",
+  "price": 800,
+  "stock": 100,
+  "category": "Programming"
+}
+
+### Update a book
+PATCH http://localhost:4004/odata/v4/catalog/Books(1)
+Content-Type: application/json
+
+{
+  "price": 499,
+  "stock": 25
+}
+
+### Delete a book
+DELETE http://localhost:4004/odata/v4/catalog/Books(6)
+
+### Get all authors
+GET http://localhost:4004/odata/v4/catalog/Authors
+```
+
+Click "Send Request" on each — they ALL work!
+
+---
