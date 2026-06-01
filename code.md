@@ -156,6 +156,17 @@ d4d4d4d4-dddd-dddd-dddd-dddddddddddd,James,Clear,USA,1986-01-22,Author of Atomic
 e5e5e5e5-eeee-eeee-eeee-eeeeeeeeeeee,Isaac,Asimov,Russia,1920-01-02,Famous science fiction author,asimov@example.com,true
 ```
 
+Update `db/data/lib.management-Genres.csv`:
+
+```csv
+code,name,description,isActive
+PROG,Programming,Software development and coding books,true
+HIST,History,Historical and civilization books,true
+SELF,Self Help,Personal growth and productivity,true
+FICT,Fiction,Novels and fictional stories,true
+SCI,Science,Scientific discoveries and research,true
+```
+
 #### Step 5: Run and Test with $expand
 
 ```bash
