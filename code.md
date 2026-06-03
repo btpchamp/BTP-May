@@ -1,123 +1,72 @@
-## Session 3: Hands-on — Build Views & Projections (12:00 - 13:00)
+## Assignment: Complete EPM Data Model
 
-### Exercise: Add Views to Your Library Project
+### Due: Start of Day 15
 
-Open your Library Management project from Day 13.
+Build the complete Enterprise Procurement Model (EPM) from scratch, demonstrating ALL concepts from Days 12-14.
 
-#### Step 1: Create a New Views File
+### Requirements
 
-Create `db/views.cds`:
+Create a new CAP project `epm-complete` with namespace `com.epm` containing:
 
-```cds
-using lib.management from './schema';
+### Part A: Entities (4 marks)
 
-// ─── VIEW 1: Available Books (for library kiosk) ───
-entity AvailableBooks as select from management.Books {
-  ID,
-  title,
-  isbn,
-  price,
-  availableCopies,
-  author.firstName || ' ' || author.lastName as authorName : String(101),
-  genre.name as genreName
-} where availableCopies > 0;
+Create these entities with proper types, aspects, and associations:
 
-// ─── VIEW 2: Overdue Borrowings (for staff) ────────
-entity OverdueBorrowings as select from management.Borrowings {
-  ID,
-  borrowDate,
-  dueDate,
-  fineAmount,
-  book.title       as bookTitle,
-  member.firstName || ' ' || member.lastName as memberName : String(101),
-  member.email     as memberEmail,
-  member.phone     as memberPhone
-} where status = 'Overdue';
+| Entity | Key Fields | Must Include |
+|--------|-----------|-------------|
+| **Suppliers** | cuid | name, contact, email, phone, city, country, isActive |
+| **Categories** | cuid | name, description, parentCategory (self-reference) |
+| **Products** | cuid, managed | name, description, price, currency, stock, minStock, rating, supplier (assoc), category (assoc) |
+| **Customers** | cuid, managed | name, email, phone, city, country, creditLimit |
+| **SalesOrders** | cuid, managed | orderNumber, customer (assoc), orderDate, amounts, currency, status |
+| **SalesOrderItems** | cuid | order (assoc to parent), product (assoc), quantity, unitPrice, netAmount |
+| **PurchaseOrders** | cuid, managed | poNumber, supplier (assoc), orderDate, amounts, currency, status |
+| **PurchaseOrderItems** | cuid | order (assoc to parent), product (assoc), quantity, unitPrice |
 
-// ─── VIEW 3: Book Summary with pricing ─────────────
-entity BookPricing as select from management.Books {
-  ID,
-  title,
-  price,
-  (price * 0.9)  as memberPrice  : Decimal(8,2),
-  (price * 0.18) as gstAmount    : Decimal(8,2),
-  (price * 1.18) as priceWithGST : Decimal(8,2),
-  case
-    when price > 500 then 'Premium'
-    when price > 300 then 'Standard'
-    else 'Budget'
-  end as priceCategory : String(20)
-};
-
-// ─── VIEW 4: Member Activity ───────────────────────
-entity MemberActivity as select from management.Members {
-  ID,
-  memberNumber,
-  firstName || ' ' || lastName as fullName : String(101),
-  email,
-  memberType,
-  maxBooks,
-  isActive
-};
-```
+**Relationship rules:**
+- SalesOrders → SalesOrderItems = **Composition**
+- PurchaseOrders → PurchaseOrderItems = **Composition**
+- All other entity connections = **Association**
+- Use `Currency` and `Country` from `@sap/cds/common`
 
 ---
 
-#### Step 2: Expose Views in a Separate Reporting Service
+### Part B: Views & Projections (2 marks)
 
-Create `srv/reporting-service.cds`:
+Create at least 3 views:
 
-```cds
-using from '../db/views';
+1. **ProductCatalog** — Flat view with product name, price, supplier name, category name, stock status (calculated)
+2. **OrderReport** — Flat view with order number, customer name, total amount, order date, status
+3. **LowStockAlert** — Products where stock ≤ minStock with supplier contact details
 
-service ReportingService @(path: '/reports') {
-  @readonly entity AvailableBooks   as projection on AvailableBooks;
-  @readonly entity OverdueBorrowings as projection on OverdueBorrowings;
-  @readonly entity BookPricing      as projection on BookPricing;
-  @readonly entity MemberActivity   as projection on MemberActivity;
-}
-```
+Create at least 2 different services:
+1. **SalesService** — Customer-facing (maybe hide internal pricing)
+2. **AdminService** — Full access to everything
+3. **ReportService** — Read-only views
 
-#### Step 3: Update Main Service with Projections
+---
 
-Update `srv/library-service.cds` to use exclusions:
+### Part C: CSV Data (2 marks)
 
-```cds
-using lib.management from '../db/schema';
+Provide complete CSV data:
+- At least 4 Suppliers
+- At least 5 Categories
+- At least 8 Products (each with supplier and category)
+- At least 4 Customers
+- At least 4 Sales Orders with items (test deep insert for more)
+- Currency and Country data
+- All FK references must be valid!
 
-service LibraryService @(path: '/library') {
-  // Full CRUD:
-  entity Books      as projection on management.Books;
-  entity Authors    as projection on management.Authors;
-  entity Genres     as projection on management.Genres;
-  entity Members    as projection on management.Members;
-  entity Borrowings as projection on management.Borrowings;
-  entity Reviews    as projection on management.Reviews;
-  entity PurchaseOrders as projection on management.PurchaseOrders;
-}
-```
+---
 
-#### Step 4: Test
+### Part D: Deploy & Verify (2 marks)
 
-```bash
-cds watch
-```
-
-Test the reporting service:
-
-```http
-// Available books with calculated fields:
-GET http://localhost:4004/reports/AvailableBooks
-
-// Overdue borrowings with member contact info:
-GET http://localhost:4004/reports/OverdueBorrowings
-
-// Book pricing with GST calculations:
-GET http://localhost:4004/reports/BookPricing
-
-// Filter premium books only:
-GET http://localhost:4004/reports/BookPricing?$filter=priceCategory eq 'Premium'
-
-// Member activity:
-GET http://localhost:4004/reports/MemberActivity?$filter=isActive eq true
-```
+1. `cds deploy --to sqlite:db/epm.db` runs without errors
+2. `sqlite3` commands show all tables with correct schema
+3. Data counts match CSV rows
+4. `cds watch` starts without errors
+5. Provide a `test.http` file with at least 10 test queries including:
+   - `$expand` queries
+   - `$filter` and `$orderby` queries
+   - Reports with calculated fields
+   - One deep insert POST request
