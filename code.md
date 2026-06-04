@@ -1,4 +1,4 @@
-## Session 3: Hands-on — Create CatalogService for Library (12:00 - 13:00)
+## Session 3: Hands-on — Create CatalogService for Library (14:00 - 15:00)
 
 ### Exercise Overview
 
