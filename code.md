@@ -1,24 +1,13 @@
-### $filter: Date & Time Functions
 
-| Function | What It Does | Example |
-|----------|-------------|---------|
-| `year(field)` | Extract year | `year(orderDate) eq 2026` |
-| `month(field)` | Extract month (1-12) | `month(hireDate) eq 6` |
-| `day(field)` | Extract day (1-31) | `day(birthDate) eq 15` |
-| `hour(field)` | Extract hour (0-23) | `hour(createdAt) ge 9` |
-| `now()` | Current date/time | `orderDate lt now()` |
+### Practice: Write the $filter
 
+For each business requirement, write the `$filter` expression:
 
-```
-// Orders placed in 2026
-$filter=year(orderDate) eq 2026
-
-// Employees hired in June
-$filter=month(hireDate) eq 6
-
-// Books published after 2000
-$filter=year(publishDate) gt 2000
-
-// Orders from this month
-$filter=year(orderDate) eq 2026 and month(orderDate) eq 6
-```
+1. "Show me all products that cost more than $50" → _____
+2. "Find customers from India" → _____
+3. "Get all active employees" → _____
+4. "Show orders placed after March 2026" → _____
+5. "Find books with 'Lord' in the title" → _____
+6. "Products with stock between 10 and 100" → _____
+7. "Authors from UK or USA" → _____
+8. "Orders that are NOT delivered and cost over $500" → _____
