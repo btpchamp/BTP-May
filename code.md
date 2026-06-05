@@ -1,224 +1,190 @@
-## Session 3: Hands-on — Create CatalogService for Library (14:00 - 15:00)
 
-### Exercise Overview
 
-We'll build a complete service for the Library bookshop system. You'll create the service file, run it, and test every endpoint.
+## Session 1: OData Query Options Overview & $filter Deep Dive (09:15 - 10:30)
+
+### The Google Search Analogy
+
+Think of OData query options like Google search features:
+
+```
+Google:                              OData:
+─────────────────────────────        ─────────────────────────────
+"cat videos"                    →    $search=cat videos
+site:youtube.com                →    (specific service endpoint)
+filetype:mp4                    →    $filter=format eq 'mp4'
+sort by date                    →    $orderby=date desc
+first 10 results                →    $top=10
+page 2                          →    $skip=10
+"About 1,240,000 results"       →    $count=true
+```
+
+OData gives you the SAME power over your data API that Google gives you over web search!
 
 ---
 
-### Step 1: Verify Your Database Model
+### The Complete OData Query Options Map
 
-First, make sure you have a working data model. If you don't have one from previous days, create this:
-
-**File: `db/schema.cds`**
-```cds
-namespace my.bookshop;
-
-using { cuid, managed } from '@sap/cds/common';
-
-entity Books : cuid, managed {
-  title       : String(200);
-  author      : Association to Authors;
-  genre       : String(50);
-  price       : Decimal(10,2);
-  stock       : Integer default 0;
-  rating      : Decimal(2,1);
-  publishDate : Date;
-  isbn        : String(13);
-}
-
-entity Authors : cuid, managed {
-  name        : String(100);
-  country     : String(50);
-  email       : String(255);
-  books       : Association to many Books on books.author = $self;
-}
-
-entity Reviews : cuid, managed {
-  book        : Association to Books;
-  reviewer    : String(100);
-  rating      : Integer;
-  comment     : String(500);
-  reviewDate  : Date;
-}
 ```
-
----
-
-### Step 2: Create Sample Data
-
-**File: `db/data/my.bookshop-Authors.csv`**
-```csv
-ID;name;country;email
-a1000001-0000-0000-0000-000000000001;J.K. Rowling;United Kingdom;jk@example.com
-a1000001-0000-0000-0000-000000000002;George Orwell;United Kingdom;george@example.com
-a1000001-0000-0000-0000-000000000003;Paulo Coelho;Brazil;paulo@example.com
-a1000001-0000-0000-0000-000000000004;Agatha Christie;United Kingdom;agatha@example.com
-a1000001-0000-0000-0000-000000000005;Haruki Murakami;Japan;haruki@example.com
-```
-
-**File: `db/data/my.bookshop-Books.csv`**
-```csv
-ID;title;author_ID;genre;price;stock;rating;publishDate;isbn
-b1000001-0000-0000-0000-000000000001;Harry Potter and the Philosopher's Stone;a1000001-0000-0000-0000-000000000001;Fantasy;12.99;150;4.8;1997-06-26;9780747532699
-b1000001-0000-0000-0000-000000000002;1984;a1000001-0000-0000-0000-000000000002;Dystopian;9.99;80;4.7;1949-06-08;9780451524935
-b1000001-0000-0000-0000-000000000003;The Alchemist;a1000001-0000-0000-0000-000000000003;Fiction;11.50;200;4.5;1988-01-01;9780062315007
-b1000001-0000-0000-0000-000000000004;Murder on the Orient Express;a1000001-0000-0000-0000-000000000004;Mystery;10.99;60;4.6;1934-01-01;9780062693662
-b1000001-0000-0000-0000-000000000005;Norwegian Wood;a1000001-0000-0000-0000-000000000005;Literary Fiction;13.99;45;4.3;1987-09-04;9780375704024
+┌──────────────────────────────────────────────────────────────────┐
+│              OData Query Options — Your Toolkit                    │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  WHAT to return:                                                 │
+│    $select    → Which columns/fields to include                  │
+│    $expand    → Which related entities to include                │
+│                                                                  │
+│  WHICH records:                                                  │
+│    $filter    → Conditions to match (WHERE clause)               │
+│    $search    → Free-text search across fields                   │
+│                                                                  │
+│  HOW to arrange:                                                 │
+│    $orderby   → Sort order (ascending/descending)                │
+│                                                                  │
+│  HOW MANY:                                                       │
+│    $top       → Maximum number to return                         │
+│    $skip      → Number to skip (for pagination)                  │
+│    $count     → Include total count in response                  │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-### Step 3: Create the Service File
+### URL Structure Reminder
 
-**Create this file: `srv/cat-service.cds`**
+All query options go AFTER the `?` in the URL, separated by `&`:
 
-```cds
-using { my.bookshop as db } from '../db/schema';
+```
+GET /catalog/Books ? $filter=price lt 20 & $orderby=title & $top=10
+                   ↑                     ↑               ↑
+                 start                 AND             AND
+              of query              another          another
+              options               option           option
+```
 
-/**
- * Public Catalog Service — for browsing books
- */
-service CatalogService @(path: '/catalog') {
+**Important:** The `$` prefix is required for ALL query options. Without it, it's not recognized!
 
-  // Books: public can browse but not modify
-  @readonly entity Books as projection on db.Books {
-    ID,
-    title,
-    genre,
-    price,
-    stock,
-    rating,
-    publishDate,
-    isbn,
-    author     // Include association for $expand
-  };
+---
 
-  // Authors: show name and country only (hide email)
-  @readonly entity Authors as projection on db.Authors {
-    ID,
-    name,
-    country,
-    books      // Include back-navigation
-  };
+### $filter — The Most Powerful Query Option
 
-  // Reviews: everyone can read, anyone can create
-  @insertonly entity Reviews as projection on db.Reviews;
-}
+`$filter` is like the WHERE clause in SQL. It decides WHICH records come back.
+
+```
+SQL:     SELECT * FROM Books WHERE price < 20
+OData:   GET /catalog/Books?$filter=price lt 20
 ```
 
 ---
 
-### Step 4: Run and Test
+### $filter: Comparison Operators
 
-```bash
-cds watch
+These compare a field to a value:
+
+| Operator | Meaning | SQL Equivalent | Example |
+|----------|---------|----------------|---------|
+| `eq` | Equals | `=` | `$filter=genre eq 'Fantasy'` |
+| `ne` | Not equals | `!=` or `<>` | `$filter=status ne 'Cancelled'` |
+| `gt` | Greater than | `>` | `$filter=price gt 10` |
+| `lt` | Less than | `<` | `$filter=stock lt 20` |
+| `ge` | Greater than or equal | `>=` | `$filter=rating ge 4.5` |
+| `le` | Less than or equal | `<=` | `$filter=price le 15.99` |
+
+**Memory trick:** 
+- **eq** = **eq**uals
+- **ne** = **n**ot **e**qual
+- **gt** = **g**reater **t**han
+- **lt** = **l**ess **t**han
+- **ge** = **g**reater-or-**e**qual
+- **le** = **l**ess-or-**e**qual
+
+---
+
+### Examples with Different Data Types
+
+```
+// String comparison (MUST use single quotes!)
+$filter=genre eq 'Fantasy'
+$filter=status ne 'Cancelled'
+$filter=country eq 'India'
+
+// Number comparison (no quotes needed)
+$filter=price gt 10
+$filter=stock lt 50
+$filter=rating ge 4.0
+
+// Boolean comparison
+$filter=isActive eq true
+$filter=isAvailable eq false
+
+// Date comparison (use YYYY-MM-DD format)
+$filter=publishDate gt 2020-01-01
+$filter=orderDate le 2026-06-01
+
+// UUID comparison
+$filter=ID eq 3f4a2b1c-d5e6-7890-abcd-ef1234567890
+
+// Null check
+$filter=email eq null
+$filter=phone ne null
 ```
 
-You should see output like:
+**Common mistake:** Forgetting quotes around strings!
 ```
-[cds] - serving CatalogService { path: '/catalog' }
-
-[cds] - server listening on { url: 'http://localhost:4004' }
-[cds] - launched at 6/2/2026, 9:30:00 AM, version: 8.x.x, in: 1.2s
+❌ $filter=genre eq Fantasy        → ERROR!
+✅ $filter=genre eq 'Fantasy'      → Works!
 ```
 
 ---
 
-### Step 5: Test Each Endpoint
+### $filter: Logical Operators
 
-Open your browser or REST client and test:
+Combine multiple conditions:
 
-| # | Test | URL | Expected Result |
-|---|------|-----|-----------------|
-| 1 | Service index | `http://localhost:4004` | Shows CatalogService with Books, Authors, Reviews |
-| 2 | All books | `http://localhost:4004/catalog/Books` | JSON array with 5 books |
-| 3 | Single book | `http://localhost:4004/catalog/Books(b1000001-0000-0000-0000-000000000001)` | Harry Potter details |
-| 4 | All authors | `http://localhost:4004/catalog/Authors` | JSON array with 5 authors |
-| 5 | Books with author | `http://localhost:4004/catalog/Books?$expand=author` | Books with author details inline |
-| 6 | Author with books | `http://localhost:4004/catalog/Authors?$expand=books` | Authors with their books |
-| 7 | Filter by genre | `http://localhost:4004/catalog/Books?$filter=genre eq 'Fantasy'` | Only Harry Potter |
-| 8 | Sort by price | `http://localhost:4004/catalog/Books?$orderby=price desc` | Most expensive first |
-| 9 | Top 3 books | `http://localhost:4004/catalog/Books?$top=3` | First 3 books |
-| 10 | Metadata | `http://localhost:4004/catalog/$metadata` | XML schema document |
+| Operator | Meaning | SQL Equivalent | Example |
+|----------|---------|----------------|---------|
+| `and` | Both must be true | `AND` | `price gt 10 and price lt 20` |
+| `or` | Either must be true | `OR` | `genre eq 'Fantasy' or genre eq 'Mystery'` |
+| `not` | Reverse the condition | `NOT` | `not contains(title,'Test')` |
 
 ---
 
-### Step 6: Verify What's Hidden
-
-Try accessing the email field that we excluded from Authors:
+### Combining Conditions — Examples
 
 ```
-GET /catalog/Authors?$select=name,email
+// Price between 10 and 20 (range query)
+$filter=price ge 10 and price le 20
+
+// Fantasy OR Mystery genre
+$filter=genre eq 'Fantasy' or genre eq 'Mystery'
+
+// Active products with low stock
+$filter=isActive eq true and stock lt 10
+
+// Orders this year that are not cancelled
+$filter=orderDate ge 2026-01-01 and status ne 'Cancelled'
+
+// High-rated books under $15
+$filter=rating ge 4.5 and price lt 15
 ```
-
-**Expected:** Error or email not returned — because we only exposed `ID`, `name`, `country`, and `books` in our projection.
-
-Try creating a book (should fail because of `@readonly`):
-
-```http
-POST http://localhost:4004/catalog/Books
-Content-Type: application/json
-
-{
-  "title": "New Book",
-  "price": 15.99
-}
-```
-
-**Expected:** `405 Method Not Allowed` — the catalog is read-only!
 
 ---
 
-### Step 7: Add an Admin Service
+### Grouping with Parentheses
 
-Now add a second service for admin operations. Create or update the file:
+When mixing `and` and `or`, use parentheses to be clear:
 
-**File: `srv/admin-service.cds`**
+```
+// WRONG — ambiguous! What does this mean?
+$filter=genre eq 'Fantasy' or genre eq 'Mystery' and price lt 15
 
-```cds
-using { my.bookshop as db } from '../db/schema';
+// Does it mean:
+//   (Fantasy) OR (Mystery AND price<15) ?
+//   (Fantasy OR Mystery) AND (price<15) ?
 
-service AdminService @(path: '/admin') {
-  entity Books as projection on db.Books;
-  entity Authors as projection on db.Authors;
-  entity Reviews as projection on db.Reviews;
-}
+// CORRECT — clear with parentheses:
+$filter=(genre eq 'Fantasy' or genre eq 'Mystery') and price lt 15
+// This means: genre is Fantasy or Mystery, AND price must be under 15
 ```
 
-Now test admin operations:
-
-```http
-### Create a new author (should work in admin!)
-POST http://localhost:4004/admin/Authors
-Content-Type: application/json
-
-{
-  "name": "Dan Brown",
-  "country": "United States",
-  "email": "dan@example.com"
-}
-```
-
-```http
-### Create a book for the new author
-POST http://localhost:4004/admin/Books
-Content-Type: application/json
-
-{
-  "title": "The Da Vinci Code",
-  "genre": "Thriller",
-  "price": 14.99,
-  "stock": 100,
-  "rating": 4.2,
-  "isbn": "9780307474278",
-  "author_ID": "<paste-the-new-author-ID-here>"
-}
-```
-
-**Verification:**
-- `GET /admin/Authors` → shows email (all fields visible!)
-- `GET /catalog/Authors` → hides email (only ID, name, country!)
-- Same data, different views through different services!
-
----
+**Rule:** Always use parentheses when mixing `and` and `or`!
