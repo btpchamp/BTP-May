@@ -1,27 +1,37 @@
-### $select with Associations
+### $orderby — Sort Your Results
 
-When you `$select` an association field without `$expand`, you get just the foreign key:
+Like ORDER BY in SQL — arrange results in a specific order.
 
+**Syntax:**
 ```
-// Without $expand — just the ID reference
-GET /catalog/Books?$select=title,author
-
-Response:
-{
-  "title": "Harry Potter...",
-  "author_ID": "a1000001-..."    ← Just the FK
-}
+$orderby=field              (ascending — default)
+$orderby=field asc          (ascending — explicit)
+$orderby=field desc         (descending — highest first)
+$orderby=field1,field2      (sort by field1, then field2 for ties)
 ```
 
-```
-// With $expand — get the full related object
-GET /catalog/Books?$select=title&$expand=author($select=name)
+### $orderby Examples
 
-Response:
-{
-  "title": "Harry Potter...",
-  "author": {
-    "name": "J.K. Rowling"      ← Full details!
-  }
-}
+```
+// Cheapest books first (ascending is default)
+GET /catalog/Books?$orderby=price
+
+// Most expensive books first
+GET /catalog/Books?$orderby=price desc
+
+// Highest rated books first
+GET /catalog/Books?$orderby=rating desc
+
+// Alphabetical by title
+GET /catalog/Books?$orderby=title
+
+// Sort by genre, then by title within each genre
+GET /catalog/Books?$orderby=genre,title
+
+// Newest orders first, then by amount descending
+GET /sales/Orders?$orderby=orderDate desc,grossAmount desc
+
+// Sort by multiple criteria with mixed directions
+GET /catalog/Books?$orderby=genre asc,price desc
+// First groups by genre A-Z, then within each genre: most expensive first
 ```
