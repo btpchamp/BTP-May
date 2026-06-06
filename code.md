@@ -1,71 +1,40 @@
-### BEFORE Handlers — Validate & Modify Input
+### AFTER Handlers — Transform Output & Side Effects
 
-`before` handlers run BEFORE the database operation. Use them to:
-- ✅ Validate input data
-- ✅ Reject bad requests
-- ✅ Add/modify fields bef```javascript
+`after` handlers run AFTER the database operation succeeds. Use them to:
+- ✅ Add computed fields to the response
+- ✅ Transform data format
+- ✅ Trigger side effects (logging, notifications)
+- ✅ Enrich response with additional info
 
 ```javascript
-// srv/admin-service.js
 module.exports = function () {
 
-  // Validate before creating a book
-  this.before('CREATE', 'Books', (req) => {
-    const { title, price, stock } = req.data;
+  // Add a computed field after reading books
+  this.after('READ', 'Books', (results, req) => {
+    // 'results' can be an array (READ all) or a single object (READ one)
+    const books = Array.isArray(results) ? results : [results];
 
-    // Rule 1: Title is required
-    if (!title) {
-      req.error(400, 'Title is required!');
-    }
+    for (const book of books) {
+      // Add discount price (20% off)
+      if (book.price) {
+        book.discountPrice = (book.price * 0.8).toFixed(2);
+      }
 
-    // Rule 2: Price must be positive
-    if (price <= 0) {
-      req.error(400, 'Price must be greater than zero');
-    }
-
-    // Rule 3: Stock can't be negative
-    if (stock < 0) {
-      req.error(400, 'Stock cannot be negative');
-    }
-  });
-
-  // Validate before updating
-  this.before('UPDATE', 'Books', (req) => {
-    if (req.data.price !== undefined && req.data.price <= 0) {
-      req.error(400, 'Price must be greater than zero');
+      // Add availability status
+      if (book.stock > 20) {
+        book.availability = 'In Stock';
+      } else if (book.stock > 0) {
+        book.availability = 'Low Stock';
+      } else {
+        book.availability = 'Out of Stock';
+      }
     }
   });
 
+  // Log after delete (side effect)
+  this.after('DELETE', 'Books', (_, req) => {
+    console.log(`Book deleted by ${req.user.id} at ${new Date().toISOString()}`);
+  });
 };
 ```
-
-
-**What happens when `req.error()` is called:**
-- The request is REJECTED
-- No database operation occurs
-- Client receives an error response with your message
-- Status code 400 (or whatever you specify)
-
-
-### Modifying Data in BEFORE Handler
-
-You can change the incoming data before it reaches the database:
-
-```javascript
-this.before('CREATE', 'Books', (req) => {
-  // Auto-capitalize the title
-  if (req.data.title) {
-    req.data.title = req.data.title.trim();
-  }
-
-  // Set default genre if not provided
-  if (!req.data.genre) {
-    req.data.genre = 'Uncategorized';
-  }
-
-  // Set creation timestamp (alternative to managed aspect)
-  req.data.processedAt = new Date().toISOString();
-});
-```
-
-
+**Important:** In `after` handlers, the first parameter is `results` (the data), the second is `req`.
