@@ -1,40 +1,56 @@
-### AFTER Handlers — Transform Output & Side Effects
+### ON Handlers — Replace the Default Behavior
 
-`after` handlers run AFTER the database operation succeeds. Use them to:
-- ✅ Add computed fields to the response
-- ✅ Transform data format
-- ✅ Trigger side effects (logging, notifications)
-- ✅ Enrich response with additional info
+`on` handlers REPLACE the default CAP behavior entirely. Use with caution!
 
 ```javascript
 module.exports = function () {
 
-  // Add a computed field after reading books
-  this.after('READ', 'Books', (results, req) => {
-    // 'results' can be an array (READ all) or a single object (READ one)
-    const books = Array.isArray(results) ? results : [results];
+  // Custom READ that adds extra logic
+  this.on('READ', 'Books', async (req, next) => {
+    // Call the default handler first
+    const results = await next();
 
-    for (const book of books) {
-      // Add discount price (20% off)
-      if (book.price) {
-        book.discountPrice = (book.price * 0.8).toFixed(2);
-      }
-
-      // Add availability status
-      if (book.stock > 20) {
-        book.availability = 'In Stock';
-      } else if (book.stock > 0) {
-        book.availability = 'Low Stock';
-      } else {
-        book.availability = 'Out of Stock';
-      }
+    // Then modify the results
+    if (results) {
+      const books = Array.isArray(results) ? results : [results];
+      books.forEach(book => {
+        book.readAt = new Date().toISOString();
+      });
     }
+
+    return results;
   });
 
-  // Log after delete (side effect)
-  this.after('DELETE', 'Books', (_, req) => {
-    console.log(`Book deleted by ${req.user.id} at ${new Date().toISOString()}`);
-  });
 };
 ```
-**Important:** In `after` handlers, the first parameter is `results` (the data), the second is `req`.
+
+**The `next()` function:**
+- Calls the DEFAULT handler (CAP's built-in CRUD)
+- Returns the results
+- You can modify and return them
+- If you DON'T call `next()`, the default behavior is completely skipped!
+
+
+### ON Handler — Completely Custom Implementation
+
+```javascript
+// Custom action: Calculate order total
+this.on('calcTotal', 'Orders', async (req) => {
+  const { ID } = req.params[0];
+
+  // Custom query
+  const order = await SELECT.one.from('SalesOrders')
+    .where({ ID })
+    .columns('ID', 'grossAmount');
+
+  const items = await SELECT.from('SalesOrderItems')
+    .where({ order_ID: ID });
+
+  // Custom calculation
+  const total = items.reduce((sum, item) => {
+    return sum + (item.quantity * item.unitPrice);
+  }, 0);
+
+  return { orderID: ID, calculatedTotal: total };
+});
+```
