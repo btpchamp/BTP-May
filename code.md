@@ -1,118 +1,122 @@
-### Async Handlers — Database Lookups in Validation
+### Complete Handler File — Putting It All Together
 
-Sometimes validation requires checking the database:
+Here's a complete, well-structured handler file:
 
 ```javascript
-this.before('CREATE', 'Orders', async (req) => {
-  //                              ↑ Note: async!
-  const { customer_ID, items } = req.data;
+// srv/admin-service.js
+const cds = require('@sap/cds');
 
-  // Check if customer exists in the database
-  const customer = await SELECT.one
-    .from('com.epm.Customers')
-    .where({ ID: customer_ID });
+module.exports = function () {
 
-  if (!customer) {
-    req.reject(404, `Customer ${customer_ID} not found`);
-  }
+  // ═══════════════════════════════════════════════
+  //  BOOKS — Validation & Logic
+  // ═══════════════════════════════════════════════
 
-  // Check if customer has sufficient credit
-  if (customer.creditLimit < req.data.grossAmount) {
-    req.reject(400, `Order amount exceeds customer credit limit of ${customer.creditLimit}`);
-  }
+  // --- Before CREATE: Validate input ---
+  this.before('CREATE', 'Books', async (req) => {
+    const { title, price, stock, isbn, author_ID } = req.data;
 
-  // Check stock for each item
-  if (items) {
-    for (const item of items) {
-      const product = await SELECT.one
-        .from('com.epm.Products')
-        .where({ ID: item.product_ID });
+    // Required fields
+    if (!title || title.trim() === '') {
+      req.error(400, 'Title is required', 'title');
+    }
+    if (price === undefined || price === null) {
+      req.error(400, 'Price is required', 'price');
+    }
 
-      if (!product) {
-        req.error(400, `Product ${item.product_ID} not found`);
-      } else if (product.stock < item.quantity) {
-        req.error(400, `Insufficient stock for ${product.productName}. Available: ${product.stock}`);
+    // Range validation
+    if (price !== undefined && price <= 0) {
+      req.error(400, 'Price must be greater than zero', 'price');
+    }
+    if (stock !== undefined && stock < 0) {
+      req.error(400, 'Stock cannot be negative', 'stock');
+    }
+
+    // Format validation
+    if (isbn && !/^\d{13}$/.test(isbn)) {
+      req.error(400, 'ISBN must be exactly 13 digits', 'isbn');
+    }
+
+    // Referential integrity
+    if (author_ID) {
+      const { Authors } = cds.entities;
+      const author = await SELECT.one.from(Authors).where({ ID: author_ID });
+      if (!author) {
+        req.error(404, 'Author not found', 'author_ID');
       }
     }
-  }
-});
-```
 
----
+    // Clean input
+    if (title) req.data.title = title.trim();
+  });
 
-### AFTER Handlers — Practical Examples
+  // --- Before UPDATE: Same validations for changed fields ---
+  this.before('UPDATE', 'Books', (req) => {
+    const { price, stock, isbn } = req.data;
 
-#### Example 1: Add Computed Fields to Response
+    if (price !== undefined && price <= 0) {
+      req.error(400, 'Price must be greater than zero', 'price');
+    }
+    if (stock !== undefined && stock < 0) {
+      req.error(400, 'Stock cannot be negative', 'stock');
+    }
+    if (isbn !== undefined && !/^\d{13}$/.test(isbn)) {
+      req.error(400, 'ISBN must be exactly 13 digits', 'isbn');
+    }
+  });
 
-```javascript
-this.after('READ', 'Books', (results) => {
-  const books = Array.isArray(results) ? results : [results];
+  // --- After READ: Add computed fields ---
+  this.after('READ', 'Books', (results) => {
+    const books = Array.isArray(results) ? results : [results];
 
-  for (const book of books) {
-    // Compute tax (18% GST)
-    if (book.price) {
-      book.priceWithTax = +(book.price * 1.18).toFixed(2);
-      book.taxAmount = +(book.price * 0.18).toFixed(2);
+    for (const book of books) {
+      if (book.price) {
+        book.priceWithTax = +(book.price * 1.18).toFixed(2);
+      }
+      if (book.stock !== undefined) {
+        book.availability = book.stock > 10 ? 'In Stock'
+                          : book.stock > 0  ? 'Low Stock'
+                          : 'Out of Stock';
+      }
+    }
+  });
+
+  // --- Before DELETE: Check dependencies ---
+  this.before('DELETE', 'Books', async (req) => {
+    const ID = req.params[0]?.ID || req.params[0];
+    // In a real app, check if this book is referenced in any orders
+    console.log(`[INFO] Deleting book ${ID}`);
+  });
+
+  // ═══════════════════════════════════════════════
+  //  AUTHORS — Validation & Logic
+  // ═══════════════════════════════════════════════
+
+  this.before('CREATE', 'Authors', (req) => {
+    const { name, email } = req.data;
+
+    if (!name || name.trim() === '') {
+      req.error(400, 'Author name is required', 'name');
     }
 
-    // Compute availability status
-    if (book.stock !== undefined) {
-      if (book.stock === 0) book.availability = 'Out of Stock';
-      else if (book.stock < 10) book.availability = 'Low Stock';
-      else book.availability = 'In Stock';
-    }
-  }
-});
-```
-
----
-
-#### Example 2: Auto-Calculate Order Total
-
-```javascript
-this.before('CREATE', 'Orders', (req) => {
-  const { items } = req.data;
-
-  if (items && items.length > 0) {
-    // Calculate totals from items
-    let netAmount = 0;
-    for (const item of items) {
-      item.netAmount = item.quantity * item.unitPrice;
-      netAmount += item.netAmount;
+    if (email && !email.includes('@')) {
+      req.error(400, 'Please provide a valid email address', 'email');
     }
 
-    req.data.netAmount = netAmount;
-    req.data.taxAmount = +(netAmount * 0.18).toFixed(2);
-    req.data.grossAmount = +(netAmount + req.data.taxAmount).toFixed(2);
-  }
-});
-```
+    if (name) req.data.name = name.trim();
+  });
 
----
+  this.before('DELETE', 'Authors', async (req) => {
+    const ID = req.params[0]?.ID || req.params[0];
+    const { Books } = cds.entities;
+    const books = await SELECT.from(Books).where({ author_ID: ID });
 
-#### Example 3: Log All Delete Operations
+    if (books.length > 0) {
+      req.reject(409,
+        `Cannot delete author: ${books.length} book(s) reference this author. Delete or reassign books first.`
+      );
+    }
+  });
 
-```javascript
-this.after('DELETE', 'Books', (_, req) => {
-  const bookId = req.params[0]?.ID || req.params[0];
-  console.log(`[AUDIT] Book ${bookId} deleted by ${req.user.id} at ${new Date().toISOString()}`);
-});
-```
-
----
-
-#### Example 4: Prevent Deletion Under Certain Conditions
-
-```javascript
-this.before('DELETE', 'Books', async (req) => {
-  const bookId = req.params[0]?.ID || req.params[0];
-
-  // Check if book has any active orders
-  const activeOrders = await SELECT.from('SalesOrderItems')
-    .where({ product_ID: bookId });
-
-  if (activeOrders.length > 0) {
-    req.reject(409, `Cannot delete book. It has ${activeOrders.length} order references.`);
-  }
-});
+};
 ```
