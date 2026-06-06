@@ -1,16 +1,22 @@
-### CREATE — Adding New Records (POST)
 
-**How it works:**
+### READ — Getting Data (GET)
+
+You already know this from Day 17! Here's the complete picture:
 
 ```
-POST /admin/Books
-Content-Type: application/json
+// Read ALL records
+GET /catalog/Books
 
-{
-  "title": "The Great Gatsby",
-  "genre": "Fiction",
-  "price": 10.99,
-  "stock": 50,
-  "author_ID": "a1000001-0000-0000-0000-000000000003"
-}
+// Read ONE record by key
+GET /catalog/Books(b1000001-0000-0000-0000-000000000001)
+
+// Read with query options
+GET /catalog/Books?$filter=genre eq 'Fantasy'&$expand=author
+
+// Read nested/related data directly
+GET /catalog/Books(b1000001-...)/author
+// Returns just the author of this specific book!
+
+// Count records
+GET /catalog/Books/$count
 ```
