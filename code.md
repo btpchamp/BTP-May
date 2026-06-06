@@ -1,242 +1,95 @@
-## Session 3: Hands-on — Perform CRUD with REST Client (12:00 - 13:00)
+Let's build a real-world validation for a Book entity:
 
-### Setup
+```javascript
+// srv/admin-service.js
+const cds = require('@sap/cds');
 
-Make sure your project is running:
-```bash
-cds watch
+//module.exports = function () {. Try to use function
+module.exports = class AdminService extends cds.ApplicationService { init(){
+  // ══════════════════════════════════════════
+  // VALIDATION: Before Creating a Book
+  // ══════════════════════════════════════════
+
+    this.before('CREATE', 'Books', async (req) => {
+        const { title } = req.data;
+        console.log('Creating a book with title:', req.data);
+        console.log('Lenth of my Title', req.data.title.length);
+        const data = await cds.run(SELECT.from('Books').where({ ID: req.data.ID }));
+        console.log('Data from DB', data);
+        console.log('Length of record', data.length);
+        console.log('DB Array to JSON', data[0]);
+        console.log('Price', data[0].price);
+        // if (!title) {
+        // req.error(400, 'This book is not allowed to be created.');
+        // }
+    });
+
+
+
+    const { title, price, stock, isbn, genre, author_ID } = req.data;
+
+    // --- Required field checks ---
+    if (!title || title.trim().length === 0) {
+      req.error(400, 'Title is required and cannot be empty', 'title');
+    }
+
+    if (price === undefined || price === null) {
+      req.error(400, 'Price is required', 'price');
+    }
+
+    // --- Value range checks ---
+    if (price !== undefined && price <= 0) {
+      req.error(400, 'Price must be greater than zero', 'price');
+    }
+
+    if (price !== undefined && price > 9999.99) {
+      req.error(400, 'Price cannot exceed 9999.99', 'price');
+    }
+
+    if (stock !== undefined && stock < 0) {
+      req.error(400, 'Stock cannot be negative', 'stock');
+    }
+
+    // --- Format checks ---
+    if (isbn && isbn.length !== 13) {
+      req.error(400, 'ISBN must be exactly 13 characters', 'isbn');
+    }
+
+    // --- Business rule: Valid genres ---
+    const validGenres = ['Fantasy', 'Fiction', 'Mystery', 'Thriller',
+                         'Science Fiction', 'Romance', 'Non-Fiction',
+                         'Biography', 'Dystopian', 'Literary Fiction'];
+    if (genre && !validGenres.includes(genre)) {
+      req.error(400, `Invalid genre. Must be one of: ${validGenres.join(', ')}`, 'genre');
+    }
+
+    // --- Referential check: Does the author exist? ---
+    if (author_ID) {
+      const author = await SELECT.one.from('my.bookshop.Authors').where({ ID: author_ID });
+      if (!author) {
+        req.error(400, 'Author not found. Please provide a valid author_ID', 'author_ID');
+      }
+    }
+  });
+
+  // ══════════════════════════════════════════
+  // VALIDATION: Before Updating a Book
+  // ══════════════════════════════════════════
+  this.before('UPDATE', 'Books', (req) => {
+    const { price, stock, isbn } = req.data;
+
+    if (price !== undefined && price <= 0) {
+      req.error(400, 'Price must be greater than zero', 'price');
+    }
+
+    if (stock !== undefined && stock < 0) {
+      req.error(400, 'Stock cannot be negative', 'stock');
+    }
+
+    if (isbn !== undefined && isbn.length !== 13) {
+      req.error(400, 'ISBN must be exactly 13 characters', 'isbn');
+    }
+  });
+
+};
 ```
-
-Create a test file: `tests/crud-tests.http`
-
----
-
-### Exercise 1: CREATE Operations (15 minutes)
-
-```http
-### ═══════════════════════════════════════════════
-### CREATE OPERATIONS (POST)
-### ═══════════════════════════════════════════════
-
-@base = http://localhost:4004/admin
-
-### 1.1 Create an Author
-POST {{base}}/Authors
-Content-Type: application/json
-
-{
-  "name": "Dan Brown",
-  "country": "United States",
-  "email": "dan.brown@example.com"
-}
-
-### 1.2 Create a Book (use the author ID from 1.1 response)
-POST {{base}}/Books
-Content-Type: application/json
-
-{
-  "title": "The Da Vinci Code",
-  "genre": "Thriller",
-  "price": 14.99,
-  "stock": 85,
-  "rating": 4.1,
-  "isbn": "9780307474278",
-  "author_ID": "PASTE-AUTHOR-ID-HERE"
-}
-
-### 1.3 Create another Book (same author)
-POST {{base}}/Books
-Content-Type: application/json
-
-{
-  "title": "Angels & Demons",
-  "genre": "Thriller",
-  "price": 12.99,
-  "stock": 60,
-  "rating": 4.0,
-  "isbn": "9780743493468",
-  "author_ID": "PASTE-AUTHOR-ID-HERE"
-}
-
-### 1.4 Create with missing required field (should it fail?)
-POST {{base}}/Books
-Content-Type: application/json
-
-{
-  "price": 9.99
-}
-
-### 1.5 Create with wrong data type (string for price)
-POST {{base}}/Books
-Content-Type: application/json
-
-{
-  "title": "Bad Data Book",
-  "price": "not-a-number"
-}
-```
-
-**Observe:**
-- Response `201 Created` for successful creates
-- The `ID` field is auto-generated
-- `createdAt` and `createdBy` are auto-filled
-- What happens with missing/wrong data?
-
----
-
-### Exercise 2: READ Operations (10 minutes)
-
-```http
-### ═══════════════════════════════════════════════
-### READ OPERATIONS (GET)
-### ═══════════════════════════════════════════════
-
-### 2.1 Read all books
-GET {{base}}/Books
-
-### 2.2 Read single book (paste a valid ID)
-GET {{base}}/Books(PASTE-BOOK-ID-HERE)
-
-### 2.3 Read a book that doesn't exist
-GET {{base}}/Books(00000000-0000-0000-0000-000000000000)
-
-### 2.4 Deep read: Get the author of a specific book
-GET {{base}}/Books(PASTE-BOOK-ID-HERE)/author
-
-### 2.5 Deep read: Get all books of an author
-GET {{base}}/Authors(PASTE-AUTHOR-ID-HERE)/books
-
-### 2.6 Read with expand
-GET {{base}}/Books?$expand=author&$select=title,price
-```
-
-**Observe:**
-- `200 OK` for successful reads
-- `404 Not Found` for non-existent records
-- Navigation paths work: `/Books(id)/author`
-
----
-
-### Exercise 3: UPDATE Operations (15 minutes)
-
-```http
-### ═══════════════════════════════════════════════
-### UPDATE OPERATIONS (PATCH and PUT)
-### ═══════════════════════════════════════════════
-
-### 3.1 PATCH: Update only the price (other fields unchanged)
-PATCH {{base}}/Books(PASTE-BOOK-ID-HERE)
-Content-Type: application/json
-
-{
-  "price": 16.99
-}
-
-### 3.2 PATCH: Update stock and rating
-PATCH {{base}}/Books(PASTE-BOOK-ID-HERE)
-Content-Type: application/json
-
-{
-  "stock": 120,
-  "rating": 4.3
-}
-
-### 3.3 Verify the update (read the book back)
-GET {{base}}/Books(PASTE-BOOK-ID-HERE)
-
-### 3.4 PUT: Full replacement (careful! missing fields become null)
-PUT {{base}}/Books(PASTE-BOOK-ID-HERE)
-Content-Type: application/json
-
-{
-  "title": "The Da Vinci Code - Special Edition",
-  "genre": "Thriller",
-  "price": 19.99,
-  "stock": 200,
-  "rating": 4.5,
-  "isbn": "9780307474278",
-  "author_ID": "PASTE-AUTHOR-ID-HERE"
-}
-
-### 3.5 Verify after PUT (check all fields)
-GET {{base}}/Books(PASTE-BOOK-ID-HERE)
-
-### 3.6 Update a non-existent record
-PATCH {{base}}/Books(00000000-0000-0000-0000-000000000000)
-Content-Type: application/json
-
-{
-  "price": 99.99
-}
-```
-
-**Observe:**
-- After PATCH: only specified fields change, `modifiedAt` updates
-- After PUT: ALL fields are what you sent
-- Updating non-existent record returns 404
-
----
-
-### Exercise 4: DELETE Operations (10 minutes)
-
-```http
-### ═══════════════════════════════════════════════
-### DELETE OPERATIONS
-### ═══════════════════════════════════════════════
-
-### 4.1 Delete a book
-DELETE {{base}}/Books(PASTE-BOOK-ID-HERE)
-
-### 4.2 Verify it's gone
-GET {{base}}/Books(PASTE-BOOK-ID-HERE)
-
-### 4.3 Try to delete again (should return 404)
-DELETE {{base}}/Books(PASTE-BOOK-ID-HERE)
-
-### 4.4 Try to delete from read-only service
-DELETE http://localhost:4004/catalog/Books(PASTE-BOOK-ID-HERE)
-```
-
-**Observe:**
-- Successful delete: `204 No Content`
-- Delete non-existent: `404 Not Found`
-- Delete from @readonly: `405 Method Not Allowed`
-
----
-
-### Exercise 5: CRUD on @readonly Service (10 minutes)
-
-Verify that `@readonly` blocks write operations:
-
-```http
-### ═══════════════════════════════════════════════
-### @readonly ENFORCEMENT
-### ═══════════════════════════════════════════════
-
-@catalog = http://localhost:4004/catalog
-
-### 5.1 READ works on catalog (should succeed)
-GET {{catalog}}/Books
-
-### 5.2 CREATE blocked on catalog
-POST {{catalog}}/Books
-Content-Type: application/json
-
-{
-  "title": "Test",
-  "price": 1.00
-}
-
-### 5.3 UPDATE blocked on catalog
-PATCH {{catalog}}/Books(PASTE-ID)
-Content-Type: application/json
-
-{
-  "price": 999.99
-}
-
-### 5.4 DELETE blocked on catalog
-DELETE {{catalog}}/Books(PASTE-ID)
-```
-
-**All write operations should return `405 Method Not Allowed`!**
