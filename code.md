@@ -1,78 +1,182 @@
-### Defining an Unbound Action in CDS
+### Defining a Bound Action in CDS
 
 ```cds
-// srv/analytics-service.cds
+// srv/sales-service.cds
 using { com.epm as db } from '../db/schema';
 
-service AnalyticsService @(path: '/analytics') {
+service SalesService @(path: '/sales') {
 
-  // Unbound action — belongs to the service, not an entity
-  action GenerateReport(
-    reportType : String(20);     // Input parameter
-    startDate  : Date;           // Input parameter
-    endDate    : Date            // Input parameter
-  ) returns {                    // Output
-    reportId   : UUID;
-    status     : String(20);
-    message    : String(200);
+  entity SalesOrders as projection on db.SalesOrders;
+  entity Customers as projection on db.Customers;
+
+  // Bound action — tied to SalesOrders entity
+  // "You can call this action ON a specific order"
+  action confirmOrder() returns {
+    status  : String(20);
+    message : String(200);
   };
 
-  // Another unbound action — no parameters
-  action PingHealth() returns {
-    status    : String(10);
-    timestamp : DateTime;
-    version   : String(20);
+  action cancelOrder(
+    reason : String(500)       // Why are you cancelling?
+  ) returns {
+    status  : String(20);
+    message : String(200);
+    refundAmount : Decimal(12,2);
   };
 
-  @readonly entity ProductCatalog as projection on db.ProductCatalog;
+  action shipOrder(
+    trackingNumber : String(50);
+    carrier        : String(50)
+  ) returns {
+    status       : String(20);
+    message      : String(200);
+    estimatedDelivery : Date;
+  };
+
 }
 ```
 
-### Implementing Unbound Action Handlers
+**Wait — where's the "bound" part?** 
+
+In CDS, you declare bound actions INSIDE the entity definition using `actions` block:
+
+```cds
+service SalesService @(path: '/sales') {
+
+  entity SalesOrders as projection on db.SalesOrders
+    actions {
+      action confirm() returns { status: String; message: String; };
+      action cancel(reason: String(500)) returns { status: String; message: String; };
+      action ship(trackingNumber: String(50); carrier: String(50)) returns { status: String; };
+    };
+
+  entity Customers as projection on db.Customers;
+}
+```
+
+**This is the correct syntax for bound actions** — they go inside the entity's `actions { }` block.
+
+
+
+
+### Implementing Bound Action Handlers
 
 ```javascript
-// srv/analytics-service.js
+// srv/sales-service.js
 const cds = require('@sap/cds');
 
 module.exports = function () {
 
-  // Handler for the GenerateReport action
-  this.on('GenerateReport', async (req) => {
-    const { reportType, startDate, endDate } = req.data;
+  const { SalesOrders } = cds.entities;
 
-    // Validate inputs
-    if (!reportType) {
-      req.reject(400, 'Report type is required');
+  // ═══════════════════════════════════════════════
+  //  BOUND ACTION: confirm (on SalesOrders)
+  // ═══════════════════════════════════════════════
+  this.on('confirm', 'SalesOrders', async (req) => {
+    // Get the specific order this action is called on
+    const orderId = req.params[0]?.ID || req.params[0];
+
+    // Read the current order
+    const order = await SELECT.one.from(SalesOrders).where({ ID: orderId });
+
+    if (!order) {
+      req.reject(404, 'Order not found');
     }
 
-    const validTypes = ['Sales', 'Inventory', 'Customers'];
-    if (!validTypes.includes(reportType)) {
-      req.reject(400, `Invalid report type. Must be: ${validTypes.join(', ')}`);
+    // Business rule: Can only confirm "New" orders
+    if (order.status !== 'New') {
+      req.reject(400, `Cannot confirm order in "${order.status}" status. Only "New" orders can be confirmed.`);
     }
 
-    if (startDate > endDate) {
-      req.reject(400, 'Start date must be before end date');
-    }
+    // Update the order status
+    await UPDATE(SalesOrders).set({
+      status: 'Confirmed',
+      modifiedAt: new Date().toISOString()
+    }).where({ ID: orderId });
 
-    // Simulate report generation
-    const reportId = cds.utils.uuid();
-
-    console.log(`Generating ${reportType} report from ${startDate} to ${endDate}...`);
-
-    // In real app: query data, generate PDF, store somewhere
+    // Return success response
     return {
-      reportId: reportId,
-      status: 'Generated',
-      message: `${reportType} report generated successfully for ${startDate} to ${endDate}`
+      status: 'Confirmed',
+      message: `Order ${order.orderNumber} confirmed successfully`
     };
   });
 
-  // Handler for PingHealth
-  this.on('PingHealth', (req) => {
+  // ═══════════════════════════════════════════════
+  //  BOUND ACTION: cancel (on SalesOrders)
+  // ═══════════════════════════════════════════════
+  this.on('cancel', 'SalesOrders', async (req) => {
+    const orderId = req.params[0]?.ID || req.params[0];
+    const { reason } = req.data;
+
+    const order = await SELECT.one.from(SalesOrders).where({ ID: orderId });
+
+    if (!order) {
+      req.reject(404, 'Order not found');
+    }
+
+    // Business rule: Cannot cancel delivered orders
+    if (order.status === 'Delivered') {
+      req.reject(400, 'Cannot cancel a delivered order. Please initiate a return instead.');
+    }
+
+    if (order.status === 'Cancelled') {
+      req.reject(400, 'Order is already cancelled');
+    }
+
+    // Cancel reason is required
+    if (!reason || reason.trim() === '') {
+      req.reject(400, 'Cancellation reason is required');
+    }
+
+    // Update order
+    await UPDATE(SalesOrders).set({
+      status: 'Cancelled',
+      modifiedAt: new Date().toISOString()
+    }).where({ ID: orderId });
+
+    // Calculate refund (if already paid)
+    const refundAmount = (order.status === 'Confirmed' || order.status === 'Shipped')
+      ? order.grossAmount
+      : 0;
+
     return {
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      version: '1.0.0'
+      status: 'Cancelled',
+      message: `Order ${order.orderNumber} cancelled. Reason: ${reason}`,
+      refundAmount: refundAmount
+    };
+  });
+
+  // ═══════════════════════════════════════════════
+  //  BOUND ACTION: ship (on SalesOrders)
+  // ═══════════════════════════════════════════════
+  this.on('ship', 'SalesOrders', async (req) => {
+    const orderId = req.params[0]?.ID || req.params[0];
+    const { trackingNumber, carrier } = req.data;
+
+    const order = await SELECT.one.from(SalesOrders).where({ ID: orderId });
+
+    if (!order) req.reject(404, 'Order not found');
+
+    if (order.status !== 'Confirmed') {
+      req.reject(400, `Cannot ship order in "${order.status}" status. Order must be "Confirmed" first.`);
+    }
+
+    if (!trackingNumber) req.reject(400, 'Tracking number is required');
+    if (!carrier) req.reject(400, 'Carrier name is required');
+
+    await UPDATE(SalesOrders).set({
+      status: 'Shipped',
+      modifiedAt: new Date().toISOString()
+    }).where({ ID: orderId });
+
+    // Estimate delivery: 5 business days from now
+    const deliveryDate = new Date();
+    deliveryDate.setDate(deliveryDate.getDate() + 5);
+
+    return {
+      status: 'Shipped',
+      message: `Order ${order.orderNumber} shipped via ${carrier}. Tracking: ${trackingNumber}`,
+      estimatedDelivery: deliveryDate.toISOString().split('T')[0]
     };
   });
 
@@ -80,46 +184,46 @@ module.exports = function () {
 ```
 
 
+### Calling Bound Actions (REST Client)
 
-### Calling an Unbound Action (REST Client)
+The URL pattern for bound actions is:
+
+```
+POST /service/Entity(key)/ServiceName.actionName
+```
 
 ```http
-### Call unbound action: GenerateReport
-POST http://localhost:4004/analytics/GenerateReport
+### Confirm a specific order
+POST http://localhost:4004/sales/SalesOrders(order-uuid-here)/SalesService.confirm
+Content-Type: application/json
+
+{}
+
+### Cancel a specific order (with reason parameter)
+POST http://localhost:4004/sales/SalesOrders(order-uuid-here)/SalesService.cancel
 Content-Type: application/json
 
 {
-  "reportType": "Sales",
-  "startDate": "2026-01-01",
-  "endDate": "2026-05-31"
+  "reason": "Customer changed their mind"
 }
-```
 
-**Response (200 OK):**
-```json
+### Ship an order (with tracking info)
+POST http://localhost:4004/sales/SalesOrders(order-uuid-here)/SalesService.ship
+Content-Type: application/json
+
 {
-  "reportId": "a1b2c3d4-e5f6-7890-...",
-  "status": "Generated",
-  "message": "Sales report generated successfully for 2026-01-01 to 2026-05-31"
+  "trackingNumber": "TRK-2026-ABC123",
+  "carrier": "FedEx"
 }
 ```
 
-
-
-
-
-
-
-
-
-**Syntax breakdown:**
-
-```cds
-action <ActionName>(
-  <param1> : <Type>;       // Input parameters (optional)
-  <param2> : <Type>
-) returns {                // Return type (optional)
-  <field1> : <Type>;
-  <field2> : <Type>;
-};
+**URL breakdown:**
+```
+POST /sales/SalesOrders(uuid)/SalesService.confirm
+      ↑     ↑              ↑   ↑              ↑
+      │     │              │   │              └── Action name
+      │     │              │   └── Service name (namespace)
+      │     │              └── Specific record key
+      │     └── Entity name
+      └── Service path
 ```
