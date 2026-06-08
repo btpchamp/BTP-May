@@ -1,447 +1,312 @@
-## What You'll Learn Today
+## Session 3: Hands-on — Create Actions & Functions (12:00 - 13:00)
 
-By the end of this session, you will be able to:
-- Define and implement unbound actions (service-level operations)
-- Define and implement bound actions (entity-specific operations)
-- Create functions for read-only data retrieval
-- Clearly explain the difference between Actions and Functions
-- Define input and output parameters for actions/functions
-- Understand Events in CAP and how to emit/subscribe to them
-- Build real-world business operations (Approve, Reject, Submit)
-- Test custom actions and functions via REST Client
+### Exercise: Build a Complete Order Management Service
 
----
-
-## Day 18 Recap — Quick Fire (09:00 - 09:15)
-
-1. PUT replaces the _____ record, PATCH updates only _____ fields? → _____
-2. Custom handler files must be named the same as _____? → _____
-3. `before` handlers are used for _____? → _____
-4. `after` handlers receive which parameters? → _____
-5. `req.error()` collects errors; `req.reject()` does what? → _____
-6. `req.data` in a CREATE handler contains _____? → _____
-7. What makes a handler `async`? → _____
-8. Deep Insert only works with _____, not Association? → _____
-
-<details>
-<summary>Answers</summary>
-
-1. **Entire** record / only **sent** fields
-2. The service **CDS file** (e.g., `cat-service.cds` → `cat-service.js`)
-3. **Validating input** and rejecting bad data before the database operation
-4. `(results, req)` — data first, then request object
-5. **Immediately stops** processing (no more handlers run)
-6. The **request body** (the JSON payload the client sent)
-7. When you need `await` for database lookups: `async (req) => { ... }`
-8. **Composition** (parent owns children)
-
-</details>
-
----
-
-## Session 1: Actions — Beyond CRUD (09:15 - 10:30)
-
-### Why Do We Need Actions?
-
-CRUD gives you Create, Read, Update, Delete. But real business applications have operations that don't fit neatly into CRUD:
+We'll build a service with CRUD + Actions + Functions to manage the full order lifecycle:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Operations that AREN'T simple CRUD:                         │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  • Approve a purchase order                                 │
-│  • Submit a leave request                                   │
-│  • Cancel an order (changes status + sends email + refund)  │
-│  • Generate a report (PDF/Excel)                            │
-│  • Calculate shipping costs                                 │
-│  • Send a reminder notification                             │
-│  • Bulk update 100 products at once                         │
-│  • Transfer stock between warehouses                        │
-│                                                             │
-│  These are BUSINESS OPERATIONS, not simple field updates!   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Question:** "Can't I just PATCH the order status to 'Approved'?"
-
-**Answer:** You COULD, but approving an order involves MORE than just changing a status field:
-1. Check if the user has permission to approve
-2. Verify the order meets approval criteria
-3. Update the status
-4. Record WHO approved and WHEN
-5. Send notification to the requester
-6. Trigger the next workflow step (e.g., start shipping)
-
-That's a **business action**, not a simple field update!
-
----
-
-### What is an Action?
-
-An **Action** is a custom operation that you define in your service. It:
-- Has a name (like a function name)
-- Can accept input parameters
-- Can return output data
-- Contains custom logic (implemented in JavaScript)
-- Is called via POST request
-
-**Real-world analogy:** 
-
-```
-CRUD = The basic controls on a washing machine (on/off, add water, drain)
-Actions = The PROGRAMS: "Quick Wash", "Heavy Duty", "Delicate Cycle"
-
-A "Quick Wash" program doesn't just turn the machine on — it:
-  - Sets temperature to 30°C
-  - Sets spin speed to 800rpm  
-  - Adds detergent at the right time
-  - Runs for 30 minutes
-  - Alerts you when done
-
-That's a business action — a coordinated set of steps with a clear purpose.
+Order Lifecycle:
+  [New] ──confirm──► [Confirmed] ──ship──► [Shipped] ──deliver──► [Delivered]
+    │                      │
+    └────cancel────────────┘──────────────► [Cancelled]
 ```
 
 ---
 
-### Two Types of Actions
+### Step 1: Define the Service (CDS)
 
-| Type | Meaning | Example | URL Pattern |
-|------|---------|---------|-------------|
-| **Unbound Action** | Service-level (not tied to one entity) | GenerateReport, SendBulkEmail | `POST /service/ActionName` |
-| **Bound Action** | Entity-level (operates on a specific record) | Approve(this order), Cancel(this PO) | `POST /service/Entity(id)/ActionName` |
-
----
-
-### Unbound Actions — Service-Level Operations
-
-An unbound action belongs to the SERVICE, not to any specific entity.
-
-**When to use:**
-- The operation doesn't target a specific record
-- It works across multiple entities
-- It's a general utility function
-
-**Examples:**
-- `GenerateReport` — creates a report from multiple data sources
-- `SendBulkNotifications` — sends emails to many users
-- `SyncWithExternalSystem` — pulls data from an external API
-- `RunMonthlyCleanup` — deletes old records across tables
-
----
-
-### Defining an Unbound Action in CDS
+**File: `srv/order-service.cds`**
 
 ```cds
-// srv/analytics-service.cds
 using { com.epm as db } from '../db/schema';
 
-service AnalyticsService @(path: '/analytics') {
+service OrderService @(path: '/orders') {
 
-  // Unbound action — belongs to the service, not an entity
-  action GenerateReport(
-    reportType : String(20);     // Input parameter
-    startDate  : Date;           // Input parameter
-    endDate    : Date            // Input parameter
-  ) returns {                    // Output
-    reportId   : UUID;
-    status     : String(20);
-    message    : String(200);
-  };
-
-  // Another unbound action — no parameters
-  action PingHealth() returns {
-    status    : String(10);
-    timestamp : DateTime;
-    version   : String(20);
-  };
-
-  @readonly entity ProductCatalog as projection on db.ProductCatalog;
-}
-```
-
-**Syntax breakdown:**
-
-```cds
-action <ActionName>(
-  <param1> : <Type>;       // Input parameters (optional)
-  <param2> : <Type>
-) returns {                // Return type (optional)
-  <field1> : <Type>;
-  <field2> : <Type>;
-};
-```
-
----
-
-### Implementing Unbound Action Handlers
-
-```javascript
-// srv/analytics-service.js
-const cds = require('@sap/cds');
-
-module.exports = function () {
-
-  // Handler for the GenerateReport action
-  this.on('GenerateReport', async (req) => {
-    const { reportType, startDate, endDate } = req.data;
-
-    // Validate inputs
-    if (!reportType) {
-      req.reject(400, 'Report type is required');
-    }
-
-    const validTypes = ['Sales', 'Inventory', 'Customers'];
-    if (!validTypes.includes(reportType)) {
-      req.reject(400, `Invalid report type. Must be: ${validTypes.join(', ')}`);
-    }
-
-    if (startDate > endDate) {
-      req.reject(400, 'Start date must be before end date');
-    }
-
-    // Simulate report generation
-    const reportId = cds.utils.uuid();
-
-    console.log(`Generating ${reportType} report from ${startDate} to ${endDate}...`);
-
-    // In real app: query data, generate PDF, store somewhere
-    return {
-      reportId: reportId,
-      status: 'Generated',
-      message: `${reportType} report generated successfully for ${startDate} to ${endDate}`
-    };
-  });
-
-  // Handler for PingHealth
-  this.on('PingHealth', (req) => {
-    return {
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      version: '1.0.0'
-    };
-  });
-
-};
-```
-
----
-
-### Calling an Unbound Action (REST Client)
-
-```http
-### Call unbound action: GenerateReport
-POST http://localhost:4004/analytics/GenerateReport
-Content-Type: application/json
-
-{
-  "reportType": "Sales",
-  "startDate": "2026-01-01",
-  "endDate": "2026-05-31"
-}
-```
-
-**Response (200 OK):**
-```json
-{
-  "reportId": "a1b2c3d4-e5f6-7890-...",
-  "status": "Generated",
-  "message": "Sales report generated successfully for 2026-01-01 to 2026-05-31"
-}
-```
-
----
-
-### Bound Actions — Entity-Level Operations
-
-A bound action is TIED to a specific entity instance. It says: "Do THIS to THIS particular record."
-
-**When to use:**
-- The operation targets ONE specific record
-- You need the record's current data to perform the action
-- Examples: approve THIS order, cancel THIS booking, ship THIS package
-
----
-
-### Defining a Bound Action in CDS
-
-```cds
-// srv/sales-service.cds
-using { com.epm as db } from '../db/schema';
-
-service SalesService @(path: '/sales') {
-
-  entity SalesOrders as projection on db.SalesOrders;
-  entity Customers as projection on db.Customers;
-
-  // Bound action — tied to SalesOrders entity
-  // "You can call this action ON a specific order"
-  action confirmOrder() returns {
-    status  : String(20);
-    message : String(200);
-  };
-
-  action cancelOrder(
-    reason : String(500)       // Why are you cancelling?
-  ) returns {
-    status  : String(20);
-    message : String(200);
-    refundAmount : Decimal(12,2);
-  };
-
-  action shipOrder(
-    trackingNumber : String(50);
-    carrier        : String(50)
-  ) returns {
-    status       : String(20);
-    message      : String(200);
-    estimatedDelivery : Date;
-  };
-
-}
-```
-
-**Wait — where's the "bound" part?** 
-
-In CDS, you declare bound actions INSIDE the entity definition using `actions` block:
-
-```cds
-service SalesService @(path: '/sales') {
-
-  entity SalesOrders as projection on db.SalesOrders
+  // Standard CRUD entities
+  entity Orders as projection on db.SalesOrders
     actions {
+      // Bound actions (entity-specific, modify data)
       action confirm() returns { status: String; message: String; };
-      action cancel(reason: String(500)) returns { status: String; message: String; };
-      action ship(trackingNumber: String(50); carrier: String(50)) returns { status: String; };
+      action cancel(reason: String(500)) returns { status: String; message: String; refund: Decimal; };
+      action ship(trackingNumber: String(50); carrier: String(50)) returns { status: String; message: String; };
+      action deliver() returns { status: String; message: String; };
+
+      // Bound functions (entity-specific, read-only)
+      function getTotal() returns { net: Decimal; tax: Decimal; gross: Decimal; };
+      function getTimeline() returns array of {
+        event: String;
+        timestamp: DateTime;
+        description: String;
+      };
     };
 
+  entity OrderItems as projection on db.SalesOrderItems;
   entity Customers as projection on db.Customers;
+  @readonly entity Products as projection on db.Products;
+
+  // Unbound actions (service-level)
+  action bulkConfirm(orderIds: array of UUID) returns {
+    confirmed: Integer;
+    failed: Integer;
+    message: String;
+  };
+
+  // Unbound functions (service-level, read-only)
+  function getOrderStats(year: Integer; month: Integer) returns {
+    totalOrders: Integer;
+    newOrders: Integer;
+    confirmedOrders: Integer;
+    shippedOrders: Integer;
+    deliveredOrders: Integer;
+    cancelledOrders: Integer;
+    totalRevenue: Decimal;
+  };
+
+  function getTopCustomers(limit: Integer) returns array of {
+    customerName: String;
+    orderCount: Integer;
+    totalSpent: Decimal;
+  };
 }
 ```
 
-**This is the correct syntax for bound actions** — they go inside the entity's `actions { }` block.
-
 ---
 
-### Implementing Bound Action Handlers
+### Step 2: Implement the Handlers
+
+**File: `srv/order-service.js`**
 
 ```javascript
-// srv/sales-service.js
 const cds = require('@sap/cds');
 
 module.exports = function () {
 
-  const { SalesOrders } = cds.entities;
-
   // ═══════════════════════════════════════════════
-  //  BOUND ACTION: confirm (on SalesOrders)
+  //  BOUND ACTION: confirm
   // ═══════════════════════════════════════════════
-  this.on('confirm', 'SalesOrders', async (req) => {
-    // Get the specific order this action is called on
-    const orderId = req.params[0]?.ID || req.params[0];
+  this.on('confirm', 'Orders', async (req) => {
+    const { ID } = req.params[0];
+    const { SalesOrders } = cds.entities;
 
-    // Read the current order
-    const order = await SELECT.one.from(SalesOrders).where({ ID: orderId });
+    const order = await SELECT.one.from(SalesOrders).where({ ID });
+    if (!order) req.reject(404, 'Order not found');
 
-    if (!order) {
-      req.reject(404, 'Order not found');
-    }
-
-    // Business rule: Can only confirm "New" orders
     if (order.status !== 'New') {
-      req.reject(400, `Cannot confirm order in "${order.status}" status. Only "New" orders can be confirmed.`);
+      req.reject(400, `Cannot confirm: Order is "${order.status}". Only "New" orders can be confirmed.`);
     }
 
-    // Update the order status
-    await UPDATE(SalesOrders).set({
-      status: 'Confirmed',
-      modifiedAt: new Date().toISOString()
-    }).where({ ID: orderId });
+    await UPDATE(SalesOrders)
+      .set({ status: 'Confirmed' })
+      .where({ ID });
 
-    // Return success response
     return {
       status: 'Confirmed',
-      message: `Order ${order.orderNumber} confirmed successfully`
+      message: `Order ${order.orderNumber} has been confirmed and is ready for processing.`
     };
   });
 
   // ═══════════════════════════════════════════════
-  //  BOUND ACTION: cancel (on SalesOrders)
+  //  BOUND ACTION: cancel
   // ═══════════════════════════════════════════════
-  this.on('cancel', 'SalesOrders', async (req) => {
-    const orderId = req.params[0]?.ID || req.params[0];
+  this.on('cancel', 'Orders', async (req) => {
+    const { ID } = req.params[0];
     const { reason } = req.data;
+    const { SalesOrders } = cds.entities;
 
-    const order = await SELECT.one.from(SalesOrders).where({ ID: orderId });
+    const order = await SELECT.one.from(SalesOrders).where({ ID });
+    if (!order) req.reject(404, 'Order not found');
 
-    if (!order) {
-      req.reject(404, 'Order not found');
-    }
-
-    // Business rule: Cannot cancel delivered orders
     if (order.status === 'Delivered') {
-      req.reject(400, 'Cannot cancel a delivered order. Please initiate a return instead.');
+      req.reject(400, 'Cannot cancel a delivered order. Please initiate a return.');
     }
-
     if (order.status === 'Cancelled') {
-      req.reject(400, 'Order is already cancelled');
+      req.reject(400, 'Order is already cancelled.');
+    }
+    if (!reason) {
+      req.reject(400, 'Please provide a reason for cancellation.');
     }
 
-    // Cancel reason is required
-    if (!reason || reason.trim() === '') {
-      req.reject(400, 'Cancellation reason is required');
-    }
+    await UPDATE(SalesOrders)
+      .set({ status: 'Cancelled' })
+      .where({ ID });
 
-    // Update order
-    await UPDATE(SalesOrders).set({
-      status: 'Cancelled',
-      modifiedAt: new Date().toISOString()
-    }).where({ ID: orderId });
-
-    // Calculate refund (if already paid)
-    const refundAmount = (order.status === 'Confirmed' || order.status === 'Shipped')
-      ? order.grossAmount
-      : 0;
+    const refund = ['Confirmed', 'Shipped'].includes(order.status)
+      ? order.grossAmount : 0;
 
     return {
       status: 'Cancelled',
       message: `Order ${order.orderNumber} cancelled. Reason: ${reason}`,
-      refundAmount: refundAmount
+      refund: refund
     };
   });
 
   // ═══════════════════════════════════════════════
-  //  BOUND ACTION: ship (on SalesOrders)
+  //  BOUND ACTION: ship
   // ═══════════════════════════════════════════════
-  this.on('ship', 'SalesOrders', async (req) => {
-    const orderId = req.params[0]?.ID || req.params[0];
+  this.on('ship', 'Orders', async (req) => {
+    const { ID } = req.params[0];
     const { trackingNumber, carrier } = req.data;
+    const { SalesOrders } = cds.entities;
 
-    const order = await SELECT.one.from(SalesOrders).where({ ID: orderId });
-
+    const order = await SELECT.one.from(SalesOrders).where({ ID });
     if (!order) req.reject(404, 'Order not found');
 
     if (order.status !== 'Confirmed') {
-      req.reject(400, `Cannot ship order in "${order.status}" status. Order must be "Confirmed" first.`);
+      req.reject(400, `Cannot ship: Order must be "Confirmed". Current status: "${order.status}"`);
     }
-
     if (!trackingNumber) req.reject(400, 'Tracking number is required');
     if (!carrier) req.reject(400, 'Carrier name is required');
 
-    await UPDATE(SalesOrders).set({
-      status: 'Shipped',
-      modifiedAt: new Date().toISOString()
-    }).where({ ID: orderId });
-
-    // Estimate delivery: 5 business days from now
-    const deliveryDate = new Date();
-    deliveryDate.setDate(deliveryDate.getDate() + 5);
+    await UPDATE(SalesOrders)
+      .set({ status: 'Shipped' })
+      .where({ ID });
 
     return {
       status: 'Shipped',
-      message: `Order ${order.orderNumber} shipped via ${carrier}. Tracking: ${trackingNumber}`,
-      estimatedDelivery: deliveryDate.toISOString().split('T')[0]
+      message: `Order ${order.orderNumber} shipped via ${carrier}. Tracking: ${trackingNumber}`
     };
+  });
+
+  // ═══════════════════════════════════════════════
+  //  BOUND ACTION: deliver
+  // ═══════════════════════════════════════════════
+  this.on('deliver', 'Orders', async (req) => {
+    const { ID } = req.params[0];
+    const { SalesOrders } = cds.entities;
+
+    const order = await SELECT.one.from(SalesOrders).where({ ID });
+    if (!order) req.reject(404, 'Order not found');
+
+    if (order.status !== 'Shipped') {
+      req.reject(400, `Cannot mark as delivered: Order must be "Shipped". Current: "${order.status}"`);
+    }
+
+    await UPDATE(SalesOrders)
+      .set({ status: 'Delivered' })
+      .where({ ID });
+
+    return {
+      status: 'Delivered',
+      message: `Order ${order.orderNumber} has been delivered successfully!`
+    };
+  });
+
+  // ═══════════════════════════════════════════════
+  //  BOUND FUNCTION: getTotal
+  // ═══════════════════════════════════════════════
+  this.on('getTotal', 'Orders', async (req) => {
+    const { ID } = req.params[0];
+
+    const items = await SELECT.from('com.epm.SalesOrderItems')
+      .where({ order_ID: ID });
+
+    const net = items.reduce((sum, item) =>
+      sum + (item.quantity * item.unitPrice), 0);
+    const tax = net * 0.18;
+
+    return {
+      net: +net.toFixed(2),
+      tax: +tax.toFixed(2),
+      gross: +(net + tax).toFixed(2)
+    };
+  });
+
+  // ═══════════════════════════════════════════════
+  //  UNBOUND ACTION: bulkConfirm
+  // ═══════════════════════════════════════════════
+  this.on('bulkConfirm', async (req) => {
+    const { orderIds } = req.data;
+    const { SalesOrders } = cds.entities;
+
+    if (!orderIds || orderIds.length === 0) {
+      req.reject(400, 'Please provide at least one order ID');
+    }
+
+    let confirmed = 0, failed = 0;
+
+    for (const id of orderIds) {
+      const order = await SELECT.one.from(SalesOrders).where({ ID: id });
+      if (order && order.status === 'New') {
+        await UPDATE(SalesOrders).set({ status: 'Confirmed' }).where({ ID: id });
+        confirmed++;
+      } else {
+        failed++;
+      }
+    }
+
+    return {
+      confirmed,
+      failed,
+      message: `Bulk operation complete: ${confirmed} confirmed, ${failed} skipped/failed`
+    };
+  });
+
+  // ═══════════════════════════════════════════════
+  //  UNBOUND FUNCTION: getOrderStats
+  // ═══════════════════════════════════════════════
+  this.on('getOrderStats', async (req) => {
+    const { year, month } = req.data;
+
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    const endDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+
+    const orders = await SELECT.from('com.epm.SalesOrders')
+      .where('orderDate >=', startDate)
+      .and('orderDate <', endDate);
+
+    const stats = {
+      totalOrders: orders.length,
+      newOrders: orders.filter(o => o.status === 'New').length,
+      confirmedOrders: orders.filter(o => o.status === 'Confirmed').length,
+      shippedOrders: orders.filter(o => o.status === 'Shipped').length,
+      deliveredOrders: orders.filter(o => o.status === 'Delivered').length,
+      cancelledOrders: orders.filter(o => o.status === 'Cancelled').length,
+      totalRevenue: +orders.reduce((sum, o) => sum + (o.grossAmount || 0), 0).toFixed(2)
+    };
+
+    return stats;
+  });
+
+  // ═══════════════════════════════════════════════
+  //  UNBOUND FUNCTION: getTopCustomers
+  // ═══════════════════════════════════════════════
+  this.on('getTopCustomers', async (req) => {
+    const limit = req.data.limit || 5;
+
+    const orders = await SELECT.from('com.epm.SalesOrders')
+      .columns('customer_ID', 'grossAmount');
+
+    // Group by customer
+    const customerMap = {};
+    for (const order of orders) {
+      if (!customerMap[order.customer_ID]) {
+        customerMap[order.customer_ID] = { count: 0, total: 0 };
+      }
+      customerMap[order.customer_ID].count++;
+      customerMap[order.customer_ID].total += order.grossAmount || 0;
+    }
+
+    // Get customer names
+    const results = [];
+    for (const [id, data] of Object.entries(customerMap)) {
+      const customer = await SELECT.one.from('com.epm.Customers')
+        .where({ ID: id })
+        .columns('customerName');
+      if (customer) {
+        results.push({
+          customerName: customer.customerName,
+          orderCount: data.count,
+          totalSpent: +data.total.toFixed(2)
+        });
+      }
+    }
+
+    // Sort by total spent and return top N
+    return results
+      .sort((a, b) => b.totalSpent - a.totalSpent)
+      .slice(0, limit);
   });
 
 };
@@ -449,48 +314,111 @@ module.exports = function () {
 
 ---
 
-### Calling Bound Actions (REST Client)
+### Step 3: Test Everything
 
-The URL pattern for bound actions is:
-
-```
-POST /service/Entity(key)/ServiceName.actionName
-```
+**File: `tests/actions-functions.http`**
 
 ```http
-### Confirm a specific order
-POST http://localhost:4004/sales/SalesOrders(order-uuid-here)/SalesService.confirm
+@base = http://localhost:4004/orders
+
+### ═══════════════════════════════════════
+### SETUP: Create test data
+### ═══════════════════════════════════════
+
+### Create a customer
+POST {{base}}/Customers
+Content-Type: application/json
+
+{
+  "customerName": "Test Customer",
+  "email": "test@example.com",
+  "city": "Mumbai",
+  "creditLimit": 500000
+}
+
+### Create an order (use customer ID from above)
+POST {{base}}/Orders
+Content-Type: application/json
+
+{
+  "orderNumber": "SO-TEST-001",
+  "customer_ID": "PASTE-CUSTOMER-ID",
+  "orderDate": "2026-06-02",
+  "grossAmount": 1500.00,
+  "netAmount": 1271.19,
+  "taxAmount": 228.81,
+  "status": "New"
+}
+
+
+### ═══════════════════════════════════════
+### BOUND ACTIONS (on specific orders)
+### ═══════════════════════════════════════
+
+### Confirm the order
+POST {{base}}/Orders(PASTE-ORDER-ID)/OrderService.confirm
 Content-Type: application/json
 
 {}
 
-### Cancel a specific order (with reason parameter)
-POST http://localhost:4004/sales/SalesOrders(order-uuid-here)/SalesService.cancel
+### Try to confirm again (should fail — already confirmed)
+POST {{base}}/Orders(PASTE-ORDER-ID)/OrderService.confirm
+Content-Type: application/json
+
+{}
+
+### Ship the order
+POST {{base}}/Orders(PASTE-ORDER-ID)/OrderService.ship
 Content-Type: application/json
 
 {
-  "reason": "Customer changed their mind"
+  "trackingNumber": "TRK-2026-001",
+  "carrier": "BlueDart"
 }
 
-### Ship an order (with tracking info)
-POST http://localhost:4004/sales/SalesOrders(order-uuid-here)/SalesService.ship
+### Deliver the order
+POST {{base}}/Orders(PASTE-ORDER-ID)/OrderService.deliver
+Content-Type: application/json
+
+{}
+
+### Try to cancel a delivered order (should fail)
+POST {{base}}/Orders(PASTE-ORDER-ID)/OrderService.cancel
 Content-Type: application/json
 
 {
-  "trackingNumber": "TRK-2026-ABC123",
-  "carrier": "FedEx"
+  "reason": "Changed my mind"
 }
-```
 
-**URL breakdown:**
-```
-POST /sales/SalesOrders(uuid)/SalesService.confirm
-      ↑     ↑              ↑   ↑              ↑
-      │     │              │   │              └── Action name
-      │     │              │   └── Service name (namespace)
-      │     │              └── Specific record key
-      │     └── Entity name
-      └── Service path
-```
 
----
+### ═══════════════════════════════════════
+### BOUND FUNCTIONS (read-only, on specific orders)
+### ═══════════════════════════════════════
+
+### Get order total (calculated)
+GET {{base}}/Orders(PASTE-ORDER-ID)/OrderService.getTotal()
+
+
+### ═══════════════════════════════════════
+### UNBOUND ACTIONS (service-level)
+### ═══════════════════════════════════════
+
+### Bulk confirm multiple orders
+POST {{base}}/bulkConfirm
+Content-Type: application/json
+
+{
+  "orderIds": ["order-uuid-1", "order-uuid-2", "order-uuid-3"]
+}
+
+
+### ═══════════════════════════════════════
+### UNBOUND FUNCTIONS (service-level, GET request!)
+### ═══════════════════════════════════════
+
+### Get order statistics for June 2026
+GET {{base}}/getOrderStats(year=2026,month=6)
+
+### Get top 3 customers by spending
+GET {{base}}/getTopCustomers(limit=3)
+```
