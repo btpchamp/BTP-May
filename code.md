@@ -1,72 +1,83 @@
-## Session 3: Hands-on — Create Actions & Functions (12:00 - 13:00)
+## Session 5: Hands-on — Complete Business Workflow (15:00 - 16:00)
 
-### Exercise: Build a Complete Order Management Service
+### Exercise: Purchase Order Approval Workflow
 
-We'll build a service with CRUD + Actions + Functions to manage the full order lifecycle:
+Build a complete purchase order workflow with actions, functions, and events:
 
 ```
-Order Lifecycle:
-  [New] ──confirm──► [Confirmed] ──ship──► [Shipped] ──deliver──► [Delivered]
-    │                      │
-    └────cancel────────────┘──────────────► [Cancelled]
+PO Lifecycle:
+  [Draft] ──submit──► [Submitted] ──approve──► [Approved] ──receive──► [Received]
+     │                     │
+     │                     └──reject──► [Rejected]
+     │
+     └──(can edit freely while in Draft)
 ```
 
 ---
 
-### Step 1: Define the Service (CDS)
+### Step 1: Update CDS Service Definition
 
-**File: `srv/order-service.cds`**
+**File: `srv/purchasing-service.cds`**
 
 ```cds
 using { com.epm as db } from '../db/schema';
 
-service OrderService @(path: '/orders') {
+service PurchasingService @(path: '/purchasing') {
 
-  // Standard CRUD entities
-  entity Orders as projection on db.SalesOrders
+  entity PurchaseOrders as projection on db.PurchaseOrders
     actions {
-      // Bound actions (entity-specific, modify data)
-      action confirm() returns { status: String; message: String; };
-      action cancel(reason: String(500)) returns { status: String; message: String; refund: Decimal; };
-      action ship(trackingNumber: String(50); carrier: String(50)) returns { status: String; message: String; };
-      action deliver() returns { status: String; message: String; };
+      // Workflow actions
+      action submit() returns { status: String; message: String; };
+      action approve(comment: String(500)) returns { status: String; message: String; approvedAt: DateTime; };
+      action reject(reason: String(500)) returns { status: String; message: String; };
+      action receive(receivedQty: Integer; notes: String(500)) returns { status: String; message: String; };
 
-      // Bound functions (entity-specific, read-only)
-      function getTotal() returns { net: Decimal; tax: Decimal; gross: Decimal; };
-      function getTimeline() returns array of {
-        event: String;
-        timestamp: DateTime;
-        description: String;
+      // Read-only functions
+      function getSummary() returns {
+        poNumber: String;
+        supplier: String;
+        itemCount: Integer;
+        totalAmount: Decimal;
+        status: String;
+        daysOpen: Integer;
       };
     };
 
-  entity OrderItems as projection on db.SalesOrderItems;
-  entity Customers as projection on db.Customers;
+  entity PurchaseOrderItems as projection on db.PurchaseOrderItems;
+  @readonly entity Suppliers as projection on db.Suppliers;
   @readonly entity Products as projection on db.Products;
 
-  // Unbound actions (service-level)
-  action bulkConfirm(orderIds: array of UUID) returns {
-    confirmed: Integer;
-    failed: Integer;
-    message: String;
+  // Unbound function: Dashboard stats
+  function getPurchasingDashboard() returns {
+    totalPOs: Integer;
+    draftCount: Integer;
+    pendingApproval: Integer;
+    approvedCount: Integer;
+    totalSpend: Decimal;
   };
 
-  // Unbound functions (service-level, read-only)
-  function getOrderStats(year: Integer; month: Integer) returns {
-    totalOrders: Integer;
-    newOrders: Integer;
-    confirmedOrders: Integer;
-    shippedOrders: Integer;
-    deliveredOrders: Integer;
-    cancelledOrders: Integer;
-    totalRevenue: Decimal;
-  };
+  // Events
+  event POSubmitted {
+    poId: UUID;
+    poNumber: String;
+    supplierName: String;
+    totalAmount: Decimal;
+    submittedBy: String;
+  }
 
-  function getTopCustomers(limit: Integer) returns array of {
-    customerName: String;
-    orderCount: Integer;
-    totalSpent: Decimal;
-  };
+  event POApproved {
+    poId: UUID;
+    poNumber: String;
+    approvedBy: String;
+    comment: String;
+  }
+
+  event POrejected {
+    poId: UUID;
+    poNumber: String;
+    rejectedBy: String;
+    reason: String;
+  }
 }
 ```
 
@@ -74,7 +85,7 @@ service OrderService @(path: '/orders') {
 
 ### Step 2: Implement the Handlers
 
-**File: `srv/order-service.js`**
+**File: `srv/purchasing-service.js`**
 
 ```javascript
 const cds = require('@sap/cds');
@@ -82,231 +93,244 @@ const cds = require('@sap/cds');
 module.exports = function () {
 
   // ═══════════════════════════════════════════════
-  //  BOUND ACTION: confirm
+  //  SUBMIT Purchase Order
   // ═══════════════════════════════════════════════
-  this.on('confirm', 'Orders', async (req) => {
+  this.on('submit', 'PurchaseOrders', async (req) => {
     const { ID } = req.params[0];
-    const { SalesOrders } = cds.entities;
+    const { PurchaseOrders, PurchaseOrderItems, Suppliers } = cds.entities;
 
-    const order = await SELECT.one.from(SalesOrders).where({ ID });
-    if (!order) req.reject(404, 'Order not found');
+    // Fetch the PO
+    const po = await SELECT.one.from(PurchaseOrders).where({ ID });
+    if (!po) req.reject(404, 'Purchase Order not found');
 
-    if (order.status !== 'New') {
-      req.reject(400, `Cannot confirm: Order is "${order.status}". Only "New" orders can be confirmed.`);
+    // Rule: Only Draft POs can be submitted
+    if (po.status !== 'Draft') {
+      req.reject(400,
+        `Cannot submit: PO is in "${po.status}" status. Only Draft POs can be submitted.`
+      );
     }
 
-    await UPDATE(SalesOrders)
-      .set({ status: 'Confirmed' })
-      .where({ ID });
+    // Rule: PO must have at least one item
+    const items = await SELECT.from(PurchaseOrderItems).where({ purchaseOrder_ID: ID });
+    if (items.length === 0) {
+      req.reject(400, 'Cannot submit: PO has no items. Add at least one item first.');
+    }
+
+    // Rule: Total amount must be calculated
+    const total = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+
+    // Update status
+    await UPDATE(PurchaseOrders).set({
+      status: 'Submitted',
+      totalAmount: +total.toFixed(2)
+    }).where({ ID });
+
+    // Get supplier name for event
+    const supplier = await SELECT.one.from(Suppliers).where({ ID: po.supplier_ID });
+
+    // Emit event
+    await this.emit('POSubmitted', {
+      poId: ID,
+      poNumber: po.poNumber,
+      supplierName: supplier?.supplierName || 'Unknown',
+      totalAmount: +total.toFixed(2),
+      submittedBy: req.user.id
+    });
 
     return {
-      status: 'Confirmed',
-      message: `Order ${order.orderNumber} has been confirmed and is ready for processing.`
+      status: 'Submitted',
+      message: `PO ${po.poNumber} submitted for approval. Total: $${total.toFixed(2)} (${items.length} items)`
     };
   });
 
   // ═══════════════════════════════════════════════
-  //  BOUND ACTION: cancel
+  //  APPROVE Purchase Order
   // ═══════════════════════════════════════════════
-  this.on('cancel', 'Orders', async (req) => {
+  this.on('approve', 'PurchaseOrders', async (req) => {
+    const { ID } = req.params[0];
+    const { comment } = req.data;
+    const { PurchaseOrders } = cds.entities;
+
+    const po = await SELECT.one.from(PurchaseOrders).where({ ID });
+    if (!po) req.reject(404, 'Purchase Order not found');
+
+    if (po.status !== 'Submitted') {
+      req.reject(400,
+        `Cannot approve: PO is in "${po.status}" status. Only Submitted POs can be approved.`
+      );
+    }
+
+    await UPDATE(PurchaseOrders).set({
+      status: 'Approved'
+    }).where({ ID });
+
+    // Emit event
+    await this.emit('POApproved', {
+      poId: ID,
+      poNumber: po.poNumber,
+      approvedBy: req.user.id,
+      comment: comment || ''
+    });
+
+    return {
+      status: 'Approved',
+      message: `PO ${po.poNumber} has been approved.${comment ? ' Comment: ' + comment : ''}`,
+      approvedAt: new Date().toISOString()
+    };
+  });
+
+  // ═══════════════════════════════════════════════
+  //  REJECT Purchase Order
+  // ═══════════════════════════════════════════════
+  this.on('reject', 'PurchaseOrders', async (req) => {
     const { ID } = req.params[0];
     const { reason } = req.data;
-    const { SalesOrders } = cds.entities;
+    const { PurchaseOrders } = cds.entities;
 
-    const order = await SELECT.one.from(SalesOrders).where({ ID });
-    if (!order) req.reject(404, 'Order not found');
+    const po = await SELECT.one.from(PurchaseOrders).where({ ID });
+    if (!po) req.reject(404, 'Purchase Order not found');
 
-    if (order.status === 'Delivered') {
-      req.reject(400, 'Cannot cancel a delivered order. Please initiate a return.');
-    }
-    if (order.status === 'Cancelled') {
-      req.reject(400, 'Order is already cancelled.');
-    }
-    if (!reason) {
-      req.reject(400, 'Please provide a reason for cancellation.');
+    if (po.status !== 'Submitted') {
+      req.reject(400, `Cannot reject: PO is in "${po.status}" status. Only Submitted POs can be rejected.`);
     }
 
-    await UPDATE(SalesOrders)
-      .set({ status: 'Cancelled' })
-      .where({ ID });
+    if (!reason || reason.trim() === '') {
+      req.reject(400, 'Rejection reason is required. Please explain why this PO is being rejected.');
+    }
 
-    const refund = ['Confirmed', 'Shipped'].includes(order.status)
-      ? order.grossAmount : 0;
+    await UPDATE(PurchaseOrders).set({
+      status: 'Rejected'
+    }).where({ ID });
+
+    // Emit event
+    await this.emit('POrejected', {
+      poId: ID,
+      poNumber: po.poNumber,
+      rejectedBy: req.user.id,
+      reason: reason
+    });
 
     return {
-      status: 'Cancelled',
-      message: `Order ${order.orderNumber} cancelled. Reason: ${reason}`,
-      refund: refund
+      status: 'Rejected',
+      message: `PO ${po.poNumber} rejected. Reason: ${reason}`
     };
   });
 
   // ═══════════════════════════════════════════════
-  //  BOUND ACTION: ship
+  //  RECEIVE Purchase Order (goods arrived)
   // ═══════════════════════════════════════════════
-  this.on('ship', 'Orders', async (req) => {
+  this.on('receive', 'PurchaseOrders', async (req) => {
     const { ID } = req.params[0];
-    const { trackingNumber, carrier } = req.data;
-    const { SalesOrders } = cds.entities;
+    const { notes } = req.data;
+    const { PurchaseOrders, PurchaseOrderItems, Products } = cds.entities;
 
-    const order = await SELECT.one.from(SalesOrders).where({ ID });
-    if (!order) req.reject(404, 'Order not found');
+    const po = await SELECT.one.from(PurchaseOrders).where({ ID });
+    if (!po) req.reject(404, 'Purchase Order not found');
 
-    if (order.status !== 'Confirmed') {
-      req.reject(400, `Cannot ship: Order must be "Confirmed". Current status: "${order.status}"`);
-    }
-    if (!trackingNumber) req.reject(400, 'Tracking number is required');
-    if (!carrier) req.reject(400, 'Carrier name is required');
-
-    await UPDATE(SalesOrders)
-      .set({ status: 'Shipped' })
-      .where({ ID });
-
-    return {
-      status: 'Shipped',
-      message: `Order ${order.orderNumber} shipped via ${carrier}. Tracking: ${trackingNumber}`
-    };
-  });
-
-  // ═══════════════════════════════════════════════
-  //  BOUND ACTION: deliver
-  // ═══════════════════════════════════════════════
-  this.on('deliver', 'Orders', async (req) => {
-    const { ID } = req.params[0];
-    const { SalesOrders } = cds.entities;
-
-    const order = await SELECT.one.from(SalesOrders).where({ ID });
-    if (!order) req.reject(404, 'Order not found');
-
-    if (order.status !== 'Shipped') {
-      req.reject(400, `Cannot mark as delivered: Order must be "Shipped". Current: "${order.status}"`);
+    if (po.status !== 'Approved') {
+      req.reject(400, `Cannot receive: PO must be "Approved". Current status: "${po.status}"`);
     }
 
-    await UPDATE(SalesOrders)
-      .set({ status: 'Delivered' })
-      .where({ ID });
+    // Update PO status
+    await UPDATE(PurchaseOrders).set({
+      status: 'Received'
+    }).where({ ID });
 
-    return {
-      status: 'Delivered',
-      message: `Order ${order.orderNumber} has been delivered successfully!`
-    };
-  });
+    // Increase stock for each item
+    const items = await SELECT.from(PurchaseOrderItems).where({ purchaseOrder_ID: ID });
 
-  // ═══════════════════════════════════════════════
-  //  BOUND FUNCTION: getTotal
-  // ═══════════════════════════════════════════════
-  this.on('getTotal', 'Orders', async (req) => {
-    const { ID } = req.params[0];
-
-    const items = await SELECT.from('com.epm.SalesOrderItems')
-      .where({ order_ID: ID });
-
-    const net = items.reduce((sum, item) =>
-      sum + (item.quantity * item.unitPrice), 0);
-    const tax = net * 0.18;
-
-    return {
-      net: +net.toFixed(2),
-      tax: +tax.toFixed(2),
-      gross: +(net + tax).toFixed(2)
-    };
-  });
-
-  // ═══════════════════════════════════════════════
-  //  UNBOUND ACTION: bulkConfirm
-  // ═══════════════════════════════════════════════
-  this.on('bulkConfirm', async (req) => {
-    const { orderIds } = req.data;
-    const { SalesOrders } = cds.entities;
-
-    if (!orderIds || orderIds.length === 0) {
-      req.reject(400, 'Please provide at least one order ID');
-    }
-
-    let confirmed = 0, failed = 0;
-
-    for (const id of orderIds) {
-      const order = await SELECT.one.from(SalesOrders).where({ ID: id });
-      if (order && order.status === 'New') {
-        await UPDATE(SalesOrders).set({ status: 'Confirmed' }).where({ ID: id });
-        confirmed++;
-      } else {
-        failed++;
+    for (const item of items) {
+      const product = await SELECT.one.from(Products).where({ ID: item.product_ID });
+      if (product) {
+        await UPDATE(Products).set({
+          stock: product.stock + item.quantity
+        }).where({ ID: item.product_ID });
       }
     }
 
     return {
-      confirmed,
-      failed,
-      message: `Bulk operation complete: ${confirmed} confirmed, ${failed} skipped/failed`
+      status: 'Received',
+      message: `PO ${po.poNumber} received. Stock updated for ${items.length} products.${notes ? ' Notes: ' + notes : ''}`
     };
   });
 
   // ═══════════════════════════════════════════════
-  //  UNBOUND FUNCTION: getOrderStats
+  //  BOUND FUNCTION: getSummary
   // ═══════════════════════════════════════════════
-  this.on('getOrderStats', async (req) => {
-    const { year, month } = req.data;
+  this.on('getSummary', 'PurchaseOrders', async (req) => {
+    const { ID } = req.params[0];
+    const { PurchaseOrders, PurchaseOrderItems, Suppliers } = cds.entities;
 
-    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-    const nextMonth = month === 12 ? 1 : month + 1;
-    const nextYear = month === 12 ? year + 1 : year;
-    const endDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+    const po = await SELECT.one.from(PurchaseOrders).where({ ID });
+    if (!po) req.reject(404, 'Purchase Order not found');
 
-    const orders = await SELECT.from('com.epm.SalesOrders')
-      .where('orderDate >=', startDate)
-      .and('orderDate <', endDate);
+    const items = await SELECT.from(PurchaseOrderItems).where({ purchaseOrder_ID: ID });
+    const supplier = await SELECT.one.from(Suppliers).where({ ID: po.supplier_ID });
 
-    const stats = {
-      totalOrders: orders.length,
-      newOrders: orders.filter(o => o.status === 'New').length,
-      confirmedOrders: orders.filter(o => o.status === 'Confirmed').length,
-      shippedOrders: orders.filter(o => o.status === 'Shipped').length,
-      deliveredOrders: orders.filter(o => o.status === 'Delivered').length,
-      cancelledOrders: orders.filter(o => o.status === 'Cancelled').length,
-      totalRevenue: +orders.reduce((sum, o) => sum + (o.grossAmount || 0), 0).toFixed(2)
+    // Calculate days open
+    const createdDate = new Date(po.createdAt || po.orderDate);
+    const today = new Date();
+    const daysOpen = Math.floor((today - createdDate) / (1000 * 60 * 60 * 24));
+
+    const totalAmount = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+
+    return {
+      poNumber: po.poNumber,
+      supplier: supplier?.supplierName || 'Unknown',
+      itemCount: items.length,
+      totalAmount: +totalAmount.toFixed(2),
+      status: po.status,
+      daysOpen: daysOpen
     };
-
-    return stats;
   });
 
   // ═══════════════════════════════════════════════
-  //  UNBOUND FUNCTION: getTopCustomers
+  //  UNBOUND FUNCTION: getPurchasingDashboard
   // ═══════════════════════════════════════════════
-  this.on('getTopCustomers', async (req) => {
-    const limit = req.data.limit || 5;
+  this.on('getPurchasingDashboard', async (req) => {
+    const { PurchaseOrders } = cds.entities;
 
-    const orders = await SELECT.from('com.epm.SalesOrders')
-      .columns('customer_ID', 'grossAmount');
+    const allPOs = await SELECT.from(PurchaseOrders);
 
-    // Group by customer
-    const customerMap = {};
-    for (const order of orders) {
-      if (!customerMap[order.customer_ID]) {
-        customerMap[order.customer_ID] = { count: 0, total: 0 };
-      }
-      customerMap[order.customer_ID].count++;
-      customerMap[order.customer_ID].total += order.grossAmount || 0;
-    }
+    return {
+      totalPOs: allPOs.length,
+      draftCount: allPOs.filter(p => p.status === 'Draft').length,
+      pendingApproval: allPOs.filter(p => p.status === 'Submitted').length,
+      approvedCount: allPOs.filter(p => p.status === 'Approved').length,
+      totalSpend: +allPOs
+        .filter(p => ['Approved', 'Received'].includes(p.status))
+        .reduce((sum, p) => sum + (p.totalAmount || 0), 0)
+        .toFixed(2)
+    };
+  });
 
-    // Get customer names
-    const results = [];
-    for (const [id, data] of Object.entries(customerMap)) {
-      const customer = await SELECT.one.from('com.epm.Customers')
-        .where({ ID: id })
-        .columns('customerName');
-      if (customer) {
-        results.push({
-          customerName: customer.customerName,
-          orderCount: data.count,
-          totalSpent: +data.total.toFixed(2)
-        });
-      }
-    }
+  // ═══════════════════════════════════════════════
+  //  EVENT LISTENERS
+  // ═══════════════════════════════════════════════
 
-    // Sort by total spent and return top N
-    return results
-      .sort((a, b) => b.totalSpent - a.totalSpent)
-      .slice(0, limit);
+  this.on('POSubmitted', (msg) => {
+    const { poNumber, supplierName, totalAmount, submittedBy } = msg.data;
+    console.log(`\n📋 [PO SUBMITTED] ${poNumber}`);
+    console.log(`   Supplier: ${supplierName}`);
+    console.log(`   Amount: $${totalAmount}`);
+    console.log(`   By: ${submittedBy}`);
+    console.log(`   → Waiting for approval...\n`);
+  });
+
+  this.on('POApproved', (msg) => {
+    const { poNumber, approvedBy, comment } = msg.data;
+    console.log(`\n✅ [PO APPROVED] ${poNumber}`);
+    console.log(`   Approved by: ${approvedBy}`);
+    if (comment) console.log(`   Comment: ${comment}`);
+    console.log(`   → Ready for goods receipt\n`);
+  });
+
+  this.on('POrejected', (msg) => {
+    const { poNumber, rejectedBy, reason } = msg.data;
+    console.log(`\n❌ [PO REJECTED] ${poNumber}`);
+    console.log(`   Rejected by: ${rejectedBy}`);
+    console.log(`   Reason: ${reason}`);
+    console.log(`   → Returned to requester\n`);
   });
 
 };
@@ -314,111 +338,175 @@ module.exports = function () {
 
 ---
 
-### Step 3: Test Everything
+## Session 6: Testing Actions, Functions & Events (16:00 - 16:45)
 
-**File: `tests/actions-functions.http`**
+### Complete Test File
+
+**File: `tests/purchasing-workflow.http`**
 
 ```http
-@base = http://localhost:4004/orders
+@base = http://localhost:4004/purchasing
 
-### ═══════════════════════════════════════
-### SETUP: Create test data
-### ═══════════════════════════════════════
+### ═══════════════════════════════════════════════
+### STEP 1: View Dashboard (unbound function)
+### ═══════════════════════════════════════════════
+GET {{base}}/getPurchasingDashboard()
 
-### Create a customer
-POST {{base}}/Customers
+
+### ═══════════════════════════════════════════════
+### STEP 2: Create a Purchase Order (standard CRUD)
+### ═══════════════════════════════════════════════
+POST {{base}}/PurchaseOrders
 Content-Type: application/json
 
 {
-  "customerName": "Test Customer",
-  "email": "test@example.com",
-  "city": "Mumbai",
-  "creditLimit": 500000
-}
-
-### Create an order (use customer ID from above)
-POST {{base}}/Orders
-Content-Type: application/json
-
-{
-  "orderNumber": "SO-TEST-001",
-  "customer_ID": "PASTE-CUSTOMER-ID",
+  "poNumber": "PO-2026-001",
+  "supplier_ID": "PASTE-SUPPLIER-ID",
   "orderDate": "2026-06-02",
-  "grossAmount": 1500.00,
-  "netAmount": 1271.19,
-  "taxAmount": 228.81,
-  "status": "New"
+  "expectedDate": "2026-06-15",
+  "status": "Draft",
+  "currency_code": "USD",
+  "notes": "Monthly restock order"
 }
 
 
-### ═══════════════════════════════════════
-### BOUND ACTIONS (on specific orders)
-### ═══════════════════════════════════════
+### ═══════════════════════════════════════════════
+### STEP 3: Add items to PO (standard CRUD)
+### ═══════════════════════════════════════════════
+POST {{base}}/PurchaseOrderItems
+Content-Type: application/json
 
-### Confirm the order
-POST {{base}}/Orders(PASTE-ORDER-ID)/OrderService.confirm
+{
+  "purchaseOrder_ID": "PASTE-PO-ID",
+  "product_ID": "PASTE-PRODUCT-ID",
+  "quantity": 100,
+  "unitPrice": 45.00,
+  "currency_code": "USD"
+}
+
+
+### ═══════════════════════════════════════════════
+### STEP 4: Get PO Summary (bound function)
+### ═══════════════════════════════════════════════
+GET {{base}}/PurchaseOrders(PASTE-PO-ID)/PurchasingService.getSummary()
+
+
+### ═══════════════════════════════════════════════
+### STEP 5: Try to submit without items (should fail if no items)
+### ═══════════════════════════════════════════════
+POST {{base}}/PurchaseOrders(PASTE-PO-ID)/PurchasingService.submit
 Content-Type: application/json
 
 {}
 
-### Try to confirm again (should fail — already confirmed)
-POST {{base}}/Orders(PASTE-ORDER-ID)/OrderService.confirm
+
+### ═══════════════════════════════════════════════
+### STEP 6: Submit PO for approval (bound action)
+### ═══════════════════════════════════════════════
+POST {{base}}/PurchaseOrders(PASTE-PO-ID)/PurchasingService.submit
 Content-Type: application/json
 
 {}
 
-### Ship the order
-POST {{base}}/Orders(PASTE-ORDER-ID)/OrderService.ship
-Content-Type: application/json
 
-{
-  "trackingNumber": "TRK-2026-001",
-  "carrier": "BlueDart"
-}
-
-### Deliver the order
-POST {{base}}/Orders(PASTE-ORDER-ID)/OrderService.deliver
+### ═══════════════════════════════════════════════
+### STEP 7: Try to submit again (should fail — not Draft)
+### ═══════════════════════════════════════════════
+POST {{base}}/PurchaseOrders(PASTE-PO-ID)/PurchasingService.submit
 Content-Type: application/json
 
 {}
 
-### Try to cancel a delivered order (should fail)
-POST {{base}}/Orders(PASTE-ORDER-ID)/OrderService.cancel
+
+### ═══════════════════════════════════════════════
+### STEP 8: Approve the PO (bound action)
+### ═══════════════════════════════════════════════
+POST {{base}}/PurchaseOrders(PASTE-PO-ID)/PurchasingService.approve
 Content-Type: application/json
 
 {
-  "reason": "Changed my mind"
+  "comment": "Approved. Budget available for Q2 restock."
 }
 
 
-### ═══════════════════════════════════════
-### BOUND FUNCTIONS (read-only, on specific orders)
-### ═══════════════════════════════════════
-
-### Get order total (calculated)
-GET {{base}}/Orders(PASTE-ORDER-ID)/OrderService.getTotal()
-
-
-### ═══════════════════════════════════════
-### UNBOUND ACTIONS (service-level)
-### ═══════════════════════════════════════
-
-### Bulk confirm multiple orders
-POST {{base}}/bulkConfirm
+### ═══════════════════════════════════════════════
+### STEP 9: Receive goods (bound action — also updates stock!)
+### ═══════════════════════════════════════════════
+POST {{base}}/PurchaseOrders(PASTE-PO-ID)/PurchasingService.receive
 Content-Type: application/json
 
 {
-  "orderIds": ["order-uuid-1", "order-uuid-2", "order-uuid-3"]
+  "notes": "All items received in good condition"
 }
 
 
-### ═══════════════════════════════════════
-### UNBOUND FUNCTIONS (service-level, GET request!)
-### ═══════════════════════════════════════
+### ═══════════════════════════════════════════════
+### STEP 10: Verify stock was updated
+### ═══════════════════════════════════════════════
+GET {{base}}/Products(PASTE-PRODUCT-ID)?$select=productName,stock
 
-### Get order statistics for June 2026
-GET {{base}}/getOrderStats(year=2026,month=6)
 
-### Get top 3 customers by spending
-GET {{base}}/getTopCustomers(limit=3)
+### ═══════════════════════════════════════════════
+### BONUS: Test rejection workflow
+### ═══════════════════════════════════════════════
+
+### Create another PO and submit it
+POST {{base}}/PurchaseOrders
+Content-Type: application/json
+
+{
+  "poNumber": "PO-2026-002",
+  "supplier_ID": "PASTE-SUPPLIER-ID",
+  "orderDate": "2026-06-02",
+  "status": "Draft",
+  "currency_code": "USD"
+}
+
+### (add items, then submit...)
+
+### Reject without reason (should fail)
+POST {{base}}/PurchaseOrders(PO-2-ID)/PurchasingService.reject
+Content-Type: application/json
+
+{}
+
+### Reject with reason
+POST {{base}}/PurchaseOrders(PO-2-ID)/PurchasingService.reject
+Content-Type: application/json
+
+{
+  "reason": "Budget exceeded for this quarter. Please reduce quantities and resubmit."
+}
+
+
+### ═══════════════════════════════════════════════
+### Check dashboard after all operations
+### ═══════════════════════════════════════════════
+GET {{base}}/getPurchasingDashboard()
 ```
+
+---
+
+### Expected Console Output (Watch the Terminal!)
+
+When you run through the workflow, your terminal (where `cds watch` is running) should show:
+
+```
+📋 [PO SUBMITTED] PO-2026-001
+   Supplier: Tech Supplies Inc.
+   Amount: $4500.00
+   By: anonymous
+   → Waiting for approval...
+
+✅ [PO APPROVED] PO-2026-001
+   Approved by: anonymous
+   Comment: Approved. Budget available for Q2 restock.
+   → Ready for goods receipt
+
+❌ [PO REJECTED] PO-2026-002
+   Rejected by: anonymous
+   Reason: Budget exceeded for this quarter.
+   → Returned to requester
+```
+
+These messages come from the event listeners — they fire automatically when events are emitted!
