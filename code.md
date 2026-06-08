@@ -1,3 +1,268 @@
+## What You'll Learn Today
+
+By the end of this session, you will be able to:
+- Define and implement unbound actions (service-level operations)
+- Define and implement bound actions (entity-specific operations)
+- Create functions for read-only data retrieval
+- Clearly explain the difference between Actions and Functions
+- Define input and output parameters for actions/functions
+- Understand Events in CAP and how to emit/subscribe to them
+- Build real-world business operations (Approve, Reject, Submit)
+- Test custom actions and functions via REST Client
+
+---
+
+## Day 18 Recap — Quick Fire (09:00 - 09:15)
+
+1. PUT replaces the _____ record, PATCH updates only _____ fields? → _____
+2. Custom handler files must be named the same as _____? → _____
+3. `before` handlers are used for _____? → _____
+4. `after` handlers receive which parameters? → _____
+5. `req.error()` collects errors; `req.reject()` does what? → _____
+6. `req.data` in a CREATE handler contains _____? → _____
+7. What makes a handler `async`? → _____
+8. Deep Insert only works with _____, not Association? → _____
+
+<details>
+<summary>Answers</summary>
+
+1. **Entire** record / only **sent** fields
+2. The service **CDS file** (e.g., `cat-service.cds` → `cat-service.js`)
+3. **Validating input** and rejecting bad data before the database operation
+4. `(results, req)` — data first, then request object
+5. **Immediately stops** processing (no more handlers run)
+6. The **request body** (the JSON payload the client sent)
+7. When you need `await` for database lookups: `async (req) => { ... }`
+8. **Composition** (parent owns children)
+
+</details>
+
+---
+
+## Session 1: Actions — Beyond CRUD (09:15 - 10:30)
+
+### Why Do We Need Actions?
+
+CRUD gives you Create, Read, Update, Delete. But real business applications have operations that don't fit neatly into CRUD:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Operations that AREN'T simple CRUD:                         │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  • Approve a purchase order                                 │
+│  • Submit a leave request                                   │
+│  • Cancel an order (changes status + sends email + refund)  │
+│  • Generate a report (PDF/Excel)                            │
+│  • Calculate shipping costs                                 │
+│  • Send a reminder notification                             │
+│  • Bulk update 100 products at once                         │
+│  • Transfer stock between warehouses                        │
+│                                                             │
+│  These are BUSINESS OPERATIONS, not simple field updates!   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Question:** "Can't I just PATCH the order status to 'Approved'?"
+
+**Answer:** You COULD, but approving an order involves MORE than just changing a status field:
+1. Check if the user has permission to approve
+2. Verify the order meets approval criteria
+3. Update the status
+4. Record WHO approved and WHEN
+5. Send notification to the requester
+6. Trigger the next workflow step (e.g., start shipping)
+
+That's a **business action**, not a simple field update!
+
+---
+
+### What is an Action?
+
+An **Action** is a custom operation that you define in your service. It:
+- Has a name (like a function name)
+- Can accept input parameters
+- Can return output data
+- Contains custom logic (implemented in JavaScript)
+- Is called via POST request
+
+**Real-world analogy:** 
+
+```
+CRUD = The basic controls on a washing machine (on/off, add water, drain)
+Actions = The PROGRAMS: "Quick Wash", "Heavy Duty", "Delicate Cycle"
+
+A "Quick Wash" program doesn't just turn the machine on — it:
+  - Sets temperature to 30°C
+  - Sets spin speed to 800rpm  
+  - Adds detergent at the right time
+  - Runs for 30 minutes
+  - Alerts you when done
+
+That's a business action — a coordinated set of steps with a clear purpose.
+```
+
+---
+
+### Two Types of Actions
+
+| Type | Meaning | Example | URL Pattern |
+|------|---------|---------|-------------|
+| **Unbound Action** | Service-level (not tied to one entity) | GenerateReport, SendBulkEmail | `POST /service/ActionName` |
+| **Bound Action** | Entity-level (operates on a specific record) | Approve(this order), Cancel(this PO) | `POST /service/Entity(id)/ActionName` |
+
+---
+
+### Unbound Actions — Service-Level Operations
+
+An unbound action belongs to the SERVICE, not to any specific entity.
+
+**When to use:**
+- The operation doesn't target a specific record
+- It works across multiple entities
+- It's a general utility function
+
+**Examples:**
+- `GenerateReport` — creates a report from multiple data sources
+- `SendBulkNotifications` — sends emails to many users
+- `SyncWithExternalSystem` — pulls data from an external API
+- `RunMonthlyCleanup` — deletes old records across tables
+
+---
+
+### Defining an Unbound Action in CDS
+
+```cds
+// srv/analytics-service.cds
+using { com.epm as db } from '../db/schema';
+
+service AnalyticsService @(path: '/analytics') {
+
+  // Unbound action — belongs to the service, not an entity
+  action GenerateReport(
+    reportType : String(20);     // Input parameter
+    startDate  : Date;           // Input parameter
+    endDate    : Date            // Input parameter
+  ) returns {                    // Output
+    reportId   : UUID;
+    status     : String(20);
+    message    : String(200);
+  };
+
+  // Another unbound action — no parameters
+  action PingHealth() returns {
+    status    : String(10);
+    timestamp : DateTime;
+    version   : String(20);
+  };
+
+  @readonly entity ProductCatalog as projection on db.ProductCatalog;
+}
+```
+
+**Syntax breakdown:**
+
+```cds
+action <ActionName>(
+  <param1> : <Type>;       // Input parameters (optional)
+  <param2> : <Type>
+) returns {                // Return type (optional)
+  <field1> : <Type>;
+  <field2> : <Type>;
+};
+```
+
+---
+
+### Implementing Unbound Action Handlers
+
+```javascript
+// srv/analytics-service.js
+const cds = require('@sap/cds');
+
+module.exports = function () {
+
+  // Handler for the GenerateReport action
+  this.on('GenerateReport', async (req) => {
+    const { reportType, startDate, endDate } = req.data;
+
+    // Validate inputs
+    if (!reportType) {
+      req.reject(400, 'Report type is required');
+    }
+
+    const validTypes = ['Sales', 'Inventory', 'Customers'];
+    if (!validTypes.includes(reportType)) {
+      req.reject(400, `Invalid report type. Must be: ${validTypes.join(', ')}`);
+    }
+
+    if (startDate > endDate) {
+      req.reject(400, 'Start date must be before end date');
+    }
+
+    // Simulate report generation
+    const reportId = cds.utils.uuid();
+
+    console.log(`Generating ${reportType} report from ${startDate} to ${endDate}...`);
+
+    // In real app: query data, generate PDF, store somewhere
+    return {
+      reportId: reportId,
+      status: 'Generated',
+      message: `${reportType} report generated successfully for ${startDate} to ${endDate}`
+    };
+  });
+
+  // Handler for PingHealth
+  this.on('PingHealth', (req) => {
+    return {
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      version: '1.0.0'
+    };
+  });
+
+};
+```
+
+---
+
+### Calling an Unbound Action (REST Client)
+
+```http
+### Call unbound action: GenerateReport
+POST http://localhost:4004/analytics/GenerateReport
+Content-Type: application/json
+
+{
+  "reportType": "Sales",
+  "startDate": "2026-01-01",
+  "endDate": "2026-05-31"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "reportId": "a1b2c3d4-e5f6-7890-...",
+  "status": "Generated",
+  "message": "Sales report generated successfully for 2026-01-01 to 2026-05-31"
+}
+```
+
+---
+
+### Bound Actions — Entity-Level Operations
+
+A bound action is TIED to a specific entity instance. It says: "Do THIS to THIS particular record."
+
+**When to use:**
+- The operation targets ONE specific record
+- You need the record's current data to perform the action
+- Examples: approve THIS order, cancel THIS booking, ship THIS package
+
+---
+
 ### Defining a Bound Action in CDS
 
 ```cds
@@ -56,8 +321,7 @@ service SalesService @(path: '/sales') {
 
 **This is the correct syntax for bound actions** — they go inside the entity's `actions { }` block.
 
-
-
+---
 
 ### Implementing Bound Action Handlers
 
@@ -183,6 +447,7 @@ module.exports = function () {
 };
 ```
 
+---
 
 ### Calling Bound Actions (REST Client)
 
@@ -227,3 +492,5 @@ POST /sales/SalesOrders(uuid)/SalesService.confirm
       │     └── Entity name
       └── Service path
 ```
+
+---
