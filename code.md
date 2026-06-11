@@ -1,676 +1,367 @@
-## Session 6: Mini Project — Purchase Order Management Backend (16:15 - 17:00)
+## What You'll Learn Today
 
-### Project Brief
-
-**Scenario:** Build a complete Purchase Order management backend from scratch. This integrates EVERYTHING from Days 16-19: services, OData, CRUD, handlers, actions, functions, and events.
-
----
-
-### Business Requirements
-
-A company needs to manage purchase orders with:
-- **Suppliers** who provide products
-- **Products** with stock tracking
-- **Purchase Orders** with a formal approval workflow
-- **Multiple user roles**: Requester, Approver, Receiver
+By the end of this session, you will be able to:
+- Explain what SAP Fiori is and its 5 core design principles
+- Describe the role of SAP Fiori Launchpad
+- Understand the SAPUI5 framework and its relationship with Fiori
+- Clearly differentiate Fiori Elements from Freestyle UI5 development
+- Choose the right approach (Fiori Elements vs Freestyle) for a given scenario
+- Identify the 4 main Fiori Elements floorplan types
+- Understand how CDS annotations drive the UI automatically
+- Preview your CAP application's data using `cds watch`
 
 ---
 
-### Workflow
+## Week 5 Kickoff & Motivation (09:00 - 09:15)
+
+### Where We Are in the Journey
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                PO LIFECYCLE                                │
-├──────────────────────────────────────────────────────────┤
-│                                                          │
-│  [Draft] ──submit──► [Pending] ──approve──► [Approved]   │
-│     ↑                    │                      │        │
-│     │                    │ reject               │        │
-│     │                    ▼                      │ order  │
-│     └──resubmit── [Rejected]                    ▼        │
-│                                            [Ordered]     │
-│                                                │        │
-│                                                │ receive│
-│                                                ▼        │
-│                                           [Received]    │
-│                                           (stock+)      │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
+Week 1 (Days 1-5):   Foundations    → HTML, CSS, JavaScript, Node.js
+Week 2 (Days 6-10):  Web Dev       → Express.js, REST APIs
+Week 3 (Days 11-15): Database      → CAP intro, CDS modeling, views
+Week 4 (Days 16-20): Services      → OData, CRUD, handlers, actions
+Week 5 (Days 21-25): UI Layer      → 👈 YOU ARE HERE!
 ```
+
+### The Big Picture: You've Built the Backend — Now Let's Add a Face!
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    YOUR CAP APPLICATION                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────────────────┐                                    │
+│  │   app/ (UI Layer)   │  ← 🆕 THIS WEEK!                  │
+│  │   SAP Fiori         │     How users SEE and INTERACT     │
+│  │   UI5 / Elements    │     with your data                 │
+│  └──────────┬──────────┘                                    │
+│             │ uses                                           │
+│  ┌──────────▼──────────┐                                    │
+│  │   srv/ (Service)    │  ✅ Done! (Days 16-20)             │
+│  │   OData APIs        │     CRUD + Actions + Functions     │
+│  └──────────┬──────────┘                                    │
+│             │ reads/writes                                   │
+│  ┌──────────▼──────────┐                                    │
+│  │   db/ (Database)    │  ✅ Done! (Days 11-15)             │
+│  │   CDS Entities      │     Schema + Data + Views          │
+│  └─────────────────────┘                                    │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Today's mindset shift:** Until now you've been building for machines (APIs return JSON). Starting today, you're building for HUMANS (UIs show forms, tables, buttons).
 
 ---
 
-### Step 1: Data Model
+## Session 1: What is SAP Fiori? Design Principles (09:15 - 10:30)
 
-**File: `db/po-schema.cds`**
+### What is SAP Fiori?
 
-```cds
-namespace com.procurement;
+**SAP Fiori** is SAP's design language and set of UI guidelines for building enterprise applications. Think of it as SAP's answer to the question: "How should business apps look and behave?"
 
-using { cuid, managed, Currency } from '@sap/cds/common';
+**Simple definition:** Fiori = Design rules + UI technology + Pre-built app patterns for SAP systems.
 
-// ─── TYPES ─────────────────────────────────
-type POStatus : String(20) enum {
-  Draft    = 'Draft';
-  Pending  = 'Pending';
-  Approved = 'Approved';
-  Rejected = 'Rejected';
-  Ordered  = 'Ordered';
-  Received = 'Received';
-}
+---
 
-type Priority : String(10) enum {
-  Low    = 'Low';
-  Medium = 'Medium';
-  High   = 'High';
-  Urgent = 'Urgent';
-}
+### Before Fiori vs After Fiori
 
-// ─── SUPPLIERS ─────────────────────────────
-entity Suppliers : cuid, managed {
-  supplierName  : String(200);
-  contactPerson : String(100);
-  email         : String(255);
-  phone         : String(20);
-  city          : String(100);
-  rating        : Decimal(2,1) default 0.0;
-  isActive      : Boolean default true;
-  orders        : Association to many PurchaseOrders on orders.supplier = $self;
-}
+```
+BEFORE FIORI (SAP GUI — the old world):
+┌────────────────────────────────────────────────┐
+│ ███████████████ MENU BAR █████████████████████ │
+│ ┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐│
+│ └─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘│
+│ ├── Too many buttons                          │
+│ ├── Tiny text, no whitespace                  │
+│ ├── Looks like a 1995 Windows app             │
+│ ├── Needs training to use                     │
+│ └── Works only on desktop                     │
+└────────────────────────────────────────────────┘
 
-// ─── PRODUCTS ──────────────────────────────
-entity Products : cuid, managed {
-  productName   : String(100);
-  description   : String(500);
-  unitPrice     : Decimal(10,2);
-  currency      : Currency;
-  stock         : Integer default 0;
-  minStock      : Integer default 10;
-  unit          : String(10) default 'EA';
-  supplier      : Association to Suppliers;
-  isActive      : Boolean default true;
-}
-
-// ─── PURCHASE ORDERS ───────────────────────
-entity PurchaseOrders : cuid, managed {
-  poNumber      : String(20);
-  supplier      : Association to Suppliers;
-  orderDate     : Date;
-  requiredDate  : Date;
-  status        : POStatus default 'Draft';
-  priority      : Priority default 'Medium';
-  totalAmount   : Decimal(12,2) default 0;
-  currency      : Currency;
-  notes         : String(1000);
-  approvedBy    : String(100);
-  approvedAt    : DateTime;
-  rejectionNote : String(500);
-  items         : Composition of many PurchaseOrderItems on items.po = $self;
-}
-
-// ─── PO LINE ITEMS ─────────────────────────
-entity PurchaseOrderItems : cuid {
-  po            : Association to PurchaseOrders;
-  product       : Association to Products;
-  quantity      : Integer;
-  unitPrice     : Decimal(10,2);
-  totalPrice    : Decimal(12,2);
-  currency      : Currency;
-  receivedQty   : Integer default 0;
-  notes         : String(500);
-}
+AFTER FIORI (modern world):
+┌────────────────────────────────────────────────┐
+│                                                │
+│    📋 My Purchase Orders                       │
+│                                                │
+│    ┌──────────────────────────────────────┐    │
+│    │ PO-001  │ Tech Parts │ $4,500 │ ✅  │    │
+│    │ PO-002  │ Office Co  │ $1,200 │ ⏳  │    │
+│    │ PO-003  │ Cloud Inc  │ $8,900 │ ❌  │    │
+│    └──────────────────────────────────────┘    │
+│                                                │
+│    Clean, simple, works on phone & laptop      │
+└────────────────────────────────────────────────┘
 ```
 
 ---
 
-### Step 2: Service Definitions
+### The 5 SAP Fiori Design Principles
 
-**File: `srv/procurement-service.cds`**
+Every Fiori app MUST follow these 5 principles. Memorize them — they're asked in interviews!
 
-```cds
-using { com.procurement as db } from '../db/po-schema';
-
-// ═══════════════════════════════════════════════
-//  PROCUREMENT SERVICE — Full PO Management
-// ═══════════════════════════════════════════════
-service ProcurementService @(path: '/procurement') {
-
-  entity PurchaseOrders as projection on db.PurchaseOrders
-    actions {
-      action submit() returns { status: String; message: String; };
-      action approve(comment: String(500)) returns { status: String; message: String; approvedAt: DateTime; };
-      action reject(reason: String(500)) returns { status: String; message: String; };
-      action resubmit() returns { status: String; message: String; };
-      action markOrdered(referenceNumber: String(50)) returns { status: String; message: String; };
-      action receiveGoods(notes: String(500)) returns { status: String; message: String; updatedProducts: Integer; };
-
-      function getSummary() returns {
-        poNumber: String; supplier: String; itemCount: Integer;
-        totalAmount: Decimal; status: String; priority: String;
-        daysOpen: Integer; canApprove: Boolean;
-      };
-    };
-
-  entity PurchaseOrderItems as projection on db.PurchaseOrderItems;
-  entity Suppliers as projection on db.Suppliers;
-  entity Products as projection on db.Products;
-
-  // Unbound actions
-  action bulkApprove(poIds: array of UUID) returns { approved: Integer; failed: Integer; };
-
-  // Unbound functions
-  function getDashboard() returns {
-    total: Integer; draft: Integer; pending: Integer;
-    approved: Integer; ordered: Integer; received: Integer;
-    rejected: Integer; totalSpend: Decimal; urgentCount: Integer;
-  };
-
-  function getLowStockProducts(threshold: Integer) returns array of {
-    productName: String; stock: Integer; minStock: Integer;
-    deficit: Integer; supplierName: String;
-  };
-
-  // Events
-  event POSubmitted { poId: UUID; poNumber: String; amount: Decimal; priority: String; }
-  event POApproved  { poId: UUID; poNumber: String; approver: String; }
-  event POrejected  { poId: UUID; poNumber: String; reason: String; }
-  event StockUpdated { productId: UUID; productName: String; oldStock: Integer; newStock: Integer; }
-}
-
-// ═══════════════════════════════════════════════
-//  CATALOG SERVICE — Public read-only browsing
-// ═══════════════════════════════════════════════
-service CatalogService @(path: '/catalog') {
-  @readonly entity Products as projection on db.Products {
-    ID, productName, description, unitPrice, currency, stock, unit
-  };
-  @readonly entity Suppliers as projection on db.Suppliers {
-    ID, supplierName, city, rating
-  };
-}
+```
+┌─────────────────────────────────────────────────────────────┐
+│              THE 5 FIORI DESIGN PRINCIPLES                    │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1️⃣  ROLE-BASED                                             │
+│      Show only what THIS user needs for THEIR job.          │
+│      A manager sees approvals. An employee sees requests.   │
+│                                                             │
+│  2️⃣  ADAPTIVE                                               │
+│      Works on desktop, tablet, AND phone.                   │
+│      Same app, adjusts layout automatically.                │
+│                                                             │
+│  3️⃣  COHERENT                                               │
+│      All Fiori apps look and feel the same.                 │
+│      Learn one → use any. Consistent patterns everywhere.   │
+│                                                             │
+│  4️⃣  SIMPLE                                                 │
+│      Remove complexity. Show less, mean more.               │
+│      1-1-3 rule: 1 user, 1 use case, 3 screens max.        │
+│                                                             │
+│  5️⃣  DELIGHTFUL                                             │
+│      Beautiful, fast, enjoyable to use.                     │
+│      Users should WANT to use it, not dread it.             │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-### Step 3: Handler Implementation
-
-**File: `srv/procurement-service.js`**
-
-```javascript
-const cds = require('@sap/cds');
-
-module.exports = function () {
-
-  const { PurchaseOrders, PurchaseOrderItems, Products, Suppliers } = cds.entities;
-
-  // ══════════════════════════════════════════════════════════
-  //  VALIDATION: Before CREATE/UPDATE PurchaseOrders
-  // ══════════════════════════════════════════════════════════
-  this.before('CREATE', 'PurchaseOrders', async (req) => {
-    const { supplier_ID, requiredDate, priority } = req.data;
-
-    if (!supplier_ID) {
-      req.error(400, 'Supplier is required', 'supplier_ID');
-    }
-
-    if (supplier_ID) {
-      const supplier = await SELECT.one.from(Suppliers).where({ ID: supplier_ID });
-      if (!supplier) req.error(404, 'Supplier not found', 'supplier_ID');
-      if (supplier && !supplier.isActive) req.error(400, 'Supplier is inactive', 'supplier_ID');
-    }
-
-    if (requiredDate) {
-      const today = new Date().toISOString().split('T')[0];
-      if (requiredDate < today) {
-        req.error(400, 'Required date cannot be in the past', 'requiredDate');
-      }
-    }
-
-    // Auto-generate PO number
-    if (!req.data.poNumber) {
-      const count = await SELECT.from(PurchaseOrders).columns('ID');
-      req.data.poNumber = `PO-${String(count.length + 1).padStart(5, '0')}`;
-    }
-
-    // Default values
-    if (!req.data.status) req.data.status = 'Draft';
-    if (!req.data.orderDate) req.data.orderDate = new Date().toISOString().split('T')[0];
-  });
-
-  this.before('UPDATE', 'PurchaseOrders', async (req) => {
-    const poId = req.params[0]?.ID || req.params[0];
-    const po = await SELECT.one.from(PurchaseOrders).where({ ID: poId });
-
-    if (po && po.status !== 'Draft' && po.status !== 'Rejected') {
-      const allowedFields = ['notes'];
-      const attemptedFields = Object.keys(req.data).filter(f => f !== 'modifiedAt' && f !== 'modifiedBy');
-      const blockedFields = attemptedFields.filter(f => !allowedFields.includes(f));
-
-      if (blockedFields.length > 0) {
-        req.reject(400,
-          `Cannot modify PO in "${po.status}" status. Only "Draft" or "Rejected" POs can be edited.`
-        );
-      }
-    }
-  });
-
-  // ══════════════════════════════════════════════════════════
-  //  VALIDATION: PurchaseOrderItems
-  // ══════════════════════════════════════════════════════════
-  this.before('CREATE', 'PurchaseOrderItems', async (req) => {
-    const { product_ID, quantity, unitPrice } = req.data;
-
-    if (!product_ID) req.error(400, 'Product is required', 'product_ID');
-    if (!quantity || quantity <= 0) req.error(400, 'Quantity must be greater than 0', 'quantity');
-    if (!unitPrice || unitPrice <= 0) req.error(400, 'Unit price must be greater than 0', 'unitPrice');
-
-    if (product_ID) {
-      const product = await SELECT.one.from(Products).where({ ID: product_ID });
-      if (!product) req.error(404, 'Product not found', 'product_ID');
-    }
-
-    // Auto-calculate total
-    if (quantity && unitPrice) {
-      req.data.totalPrice = +(quantity * unitPrice).toFixed(2);
-    }
-  });
-
-  // ══════════════════════════════════════════════════════════
-  //  ACTION: Submit PO for approval
-  // ══════════════════════════════════════════════════════════
-  this.on('submit', 'PurchaseOrders', async (req) => {
-    const { ID } = req.params[0];
-
-    const po = await SELECT.one.from(PurchaseOrders).where({ ID });
-    if (!po) req.reject(404, 'Purchase Order not found');
-
-    if (po.status !== 'Draft' && po.status !== 'Rejected') {
-      req.reject(400, `Cannot submit: PO is "${po.status}". Only Draft or Rejected POs can be submitted.`);
-    }
-
-    const items = await SELECT.from(PurchaseOrderItems).where({ po_ID: ID });
-    if (items.length === 0) {
-      req.reject(400, 'Cannot submit: PO has no line items. Add at least one item.');
-    }
-
-    const totalAmount = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-
-    await UPDATE(PurchaseOrders).set({
-      status: 'Pending',
-      totalAmount: +totalAmount.toFixed(2),
-      rejectionNote: null
-    }).where({ ID });
-
-    await this.emit('POSubmitted', {
-      poId: ID,
-      poNumber: po.poNumber,
-      amount: +totalAmount.toFixed(2),
-      priority: po.priority
-    });
-
-    return {
-      status: 'Pending',
-      message: `PO ${po.poNumber} submitted for approval (${items.length} items, $${totalAmount.toFixed(2)})`
-    };
-  });
-
-  // ══════════════════════════════════════════════════════════
-  //  ACTION: Approve PO
-  // ══════════════════════════════════════════════════════════
-  this.on('approve', 'PurchaseOrders', async (req) => {
-    const { ID } = req.params[0];
-    const { comment } = req.data;
-
-    const po = await SELECT.one.from(PurchaseOrders).where({ ID });
-    if (!po) req.reject(404, 'Purchase Order not found');
-
-    if (po.status !== 'Pending') {
-      req.reject(400, `Cannot approve: PO is "${po.status}". Only Pending POs can be approved.`);
-    }
-
-    const now = new Date().toISOString();
-    await UPDATE(PurchaseOrders).set({
-      status: 'Approved',
-      approvedBy: req.user.id || 'approver',
-      approvedAt: now
-    }).where({ ID });
-
-    await this.emit('POApproved', {
-      poId: ID,
-      poNumber: po.poNumber,
-      approver: req.user.id || 'approver'
-    });
-
-    return {
-      status: 'Approved',
-      message: `PO ${po.poNumber} approved.${comment ? ' Note: ' + comment : ''}`,
-      approvedAt: now
-    };
-  });
-
-  // ══════════════════════════════════════════════════════════
-  //  ACTION: Reject PO
-  // ══════════════════════════════════════════════════════════
-  this.on('reject', 'PurchaseOrders', async (req) => {
-    const { ID } = req.params[0];
-    const { reason } = req.data;
-
-    const po = await SELECT.one.from(PurchaseOrders).where({ ID });
-    if (!po) req.reject(404, 'Purchase Order not found');
-
-    if (po.status !== 'Pending') {
-      req.reject(400, `Cannot reject: PO is "${po.status}". Only Pending POs can be rejected.`);
-    }
-    if (!reason || reason.trim() === '') {
-      req.reject(400, 'Rejection reason is required');
-    }
-
-    await UPDATE(PurchaseOrders).set({
-      status: 'Rejected',
-      rejectionNote: reason
-    }).where({ ID });
-
-    await this.emit('POrejected', {
-      poId: ID,
-      poNumber: po.poNumber,
-      reason: reason
-    });
-
-    return {
-      status: 'Rejected',
-      message: `PO ${po.poNumber} rejected. Reason: ${reason}`
-    };
-  });
-
-  // ══════════════════════════════════════════════════════════
-  //  ACTION: Resubmit (after rejection)
-  // ══════════════════════════════════════════════════════════
-  this.on('resubmit', 'PurchaseOrders', async (req) => {
-    const { ID } = req.params[0];
-
-    const po = await SELECT.one.from(PurchaseOrders).where({ ID });
-    if (!po) req.reject(404, 'Purchase Order not found');
-
-    if (po.status !== 'Rejected') {
-      req.reject(400, `Cannot resubmit: PO is "${po.status}". Only Rejected POs can be resubmitted.`);
-    }
-
-    await UPDATE(PurchaseOrders).set({
-      status: 'Draft',
-      rejectionNote: null
-    }).where({ ID });
-
-    return {
-      status: 'Draft',
-      message: `PO ${po.poNumber} moved back to Draft. Please make corrections and submit again.`
-    };
-  });
-
-  // ══════════════════════════════════════════════════════════
-  //  ACTION: Mark as Ordered (sent to supplier)
-  // ══════════════════════════════════════════════════════════
-  this.on('markOrdered', 'PurchaseOrders', async (req) => {
-    const { ID } = req.params[0];
-    const { referenceNumber } = req.data;
-
-    const po = await SELECT.one.from(PurchaseOrders).where({ ID });
-    if (!po) req.reject(404, 'Purchase Order not found');
-
-    if (po.status !== 'Approved') {
-      req.reject(400, `Cannot mark as ordered: PO must be Approved. Current: "${po.status}"`);
-    }
-    if (!referenceNumber) {
-      req.reject(400, 'Supplier reference number is required');
-    }
-
-    await UPDATE(PurchaseOrders).set({
-      status: 'Ordered'
-    }).where({ ID });
-
-    return {
-      status: 'Ordered',
-      message: `PO ${po.poNumber} marked as ordered. Supplier ref: ${referenceNumber}`
-    };
-  });
-
-  // ══════════════════════════════════════════════════════════
-  //  ACTION: Receive Goods (updates stock!)
-  // ══════════════════════════════════════════════════════════
-  this.on('receiveGoods', 'PurchaseOrders', async (req) => {
-    const { ID } = req.params[0];
-    const { notes } = req.data;
-
-    const po = await SELECT.one.from(PurchaseOrders).where({ ID });
-    if (!po) req.reject(404, 'Purchase Order not found');
-
-    if (po.status !== 'Ordered') {
-      req.reject(400, `Cannot receive: PO must be "Ordered". Current: "${po.status}"`);
-    }
-
-    const items = await SELECT.from(PurchaseOrderItems).where({ po_ID: ID });
-    let updatedProducts = 0;
-
-    for (const item of items) {
-      const product = await SELECT.one.from(Products).where({ ID: item.product_ID });
-      if (product) {
-        const oldStock = product.stock;
-        const newStock = oldStock + item.quantity;
-
-        await UPDATE(Products).set({ stock: newStock }).where({ ID: item.product_ID });
-        await UPDATE(PurchaseOrderItems).set({ receivedQty: item.quantity }).where({ ID: item.ID });
-
-        await this.emit('StockUpdated', {
-          productId: item.product_ID,
-          productName: product.productName,
-          oldStock: oldStock,
-          newStock: newStock
-        });
-
-        updatedProducts++;
-      }
-    }
-
-    await UPDATE(PurchaseOrders).set({ status: 'Received' }).where({ ID });
-
-    return {
-      status: 'Received',
-      message: `PO ${po.poNumber} received. Stock updated for ${updatedProducts} product(s).${notes ? ' Notes: ' + notes : ''}`,
-      updatedProducts: updatedProducts
-    };
-  });
-
-  // ══════════════════════════════════════════════════════════
-  //  FUNCTION: getSummary (bound)
-  // ══════════════════════════════════════════════════════════
-  this.on('getSummary', 'PurchaseOrders', async (req) => {
-    const { ID } = req.params[0];
-
-    const po = await SELECT.one.from(PurchaseOrders).where({ ID });
-    if (!po) req.reject(404, 'PO not found');
-
-    const items = await SELECT.from(PurchaseOrderItems).where({ po_ID: ID });
-    const supplier = await SELECT.one.from(Suppliers).where({ ID: po.supplier_ID });
-
-    const total = items.reduce((sum, i) => sum + (i.quantity * i.unitPrice), 0);
-    const created = new Date(po.createdAt || po.orderDate);
-    const daysOpen = Math.floor((new Date() - created) / 86400000);
-
-    return {
-      poNumber: po.poNumber,
-      supplier: supplier?.supplierName || 'Unknown',
-      itemCount: items.length,
-      totalAmount: +total.toFixed(2),
-      status: po.status,
-      priority: po.priority,
-      daysOpen: daysOpen,
-      canApprove: po.status === 'Pending'
-    };
-  });
-
-  // ══════════════════════════════════════════════════════════
-  //  FUNCTION: getDashboard (unbound)
-  // ══════════════════════════════════════════════════════════
-  this.on('getDashboard', async () => {
-    const allPOs = await SELECT.from(PurchaseOrders);
-
-    const byStatus = (status) => allPOs.filter(p => p.status === status).length;
-    const totalSpend = allPOs
-      .filter(p => ['Approved', 'Ordered', 'Received'].includes(p.status))
-      .reduce((sum, p) => sum + (p.totalAmount || 0), 0);
-
-    return {
-      total: allPOs.length,
-      draft: byStatus('Draft'),
-      pending: byStatus('Pending'),
-      approved: byStatus('Approved'),
-      ordered: byStatus('Ordered'),
-      received: byStatus('Received'),
-      rejected: byStatus('Rejected'),
-      totalSpend: +totalSpend.toFixed(2),
-      urgentCount: allPOs.filter(p => p.priority === 'Urgent' && p.status === 'Pending').length
-    };
-  });
-
-  // ══════════════════════════════════════════════════════════
-  //  FUNCTION: getLowStockProducts (unbound)
-  // ══════════════════════════════════════════════════════════
-  this.on('getLowStockProducts', async (req) => {
-    const threshold = req.data.threshold || 0;
-
-    const products = await SELECT.from(Products)
-      .where('stock <=', 'minStock')
-      .and('isActive =', true);
-
-    const results = [];
-    for (const p of products) {
-      if (p.stock <= p.minStock + threshold) {
-        const supplier = await SELECT.one.from(Suppliers).where({ ID: p.supplier_ID });
-        results.push({
-          productName: p.productName,
-          stock: p.stock,
-          minStock: p.minStock,
-          deficit: p.minStock - p.stock,
-          supplierName: supplier?.supplierName || 'No supplier'
-        });
-      }
-    }
-
-    return results.sort((a, b) => b.deficit - a.deficit);
-  });
-
-  // ══════════════════════════════════════════════════════════
-  //  AFTER READ: Computed fields
-  // ══════════════════════════════════════════════════════════
-  this.after('READ', 'PurchaseOrders', (results) => {
-    const pos = Array.isArray(results) ? results : [results];
-    for (const po of pos) {
-      if (po.status) {
-        po.isEditable = ['Draft', 'Rejected'].includes(po.status);
-        po.canSubmit = ['Draft', 'Rejected'].includes(po.status);
-        po.canApprove = po.status === 'Pending';
-      }
-    }
-  });
-
-  // ══════════════════════════════════════════════════════════
-  //  EVENT LISTENERS
-  // ══════════════════════════════════════════════════════════
-  this.on('POSubmitted', (msg) => {
-    const { poNumber, amount, priority } = msg.data;
-    const icon = priority === 'Urgent' ? '🚨' : '📋';
-    console.log(`${icon} [SUBMITTED] ${poNumber} | $${amount} | Priority: ${priority}`);
-  });
-
-  this.on('POApproved', (msg) => {
-    console.log(`✅ [APPROVED] ${msg.data.poNumber} by ${msg.data.approver}`);
-  });
-
-  this.on('POrejected', (msg) => {
-    console.log(`❌ [REJECTED] ${msg.data.poNumber} | Reason: ${msg.data.reason}`);
-  });
-
-  this.on('StockUpdated', (msg) => {
-    const { productName, oldStock, newStock } = msg.data;
-    console.log(`📦 [STOCK] ${productName}: ${oldStock} → ${newStock} (+${newStock - oldStock})`);
-  });
-
-};
+### Memory Trick: R-A-C-S-D
+
+**R**ole-based → **A**daptive → **C**oherent → **S**imple → **D**elightful
+
+Think: "**R**eal **A**pps **C**an't **S**ucceed without **D**esign"
+
+---
+
+### Principle 1: Role-Based — Show Only What Matters
+
+```
+WRONG: One app for everyone with 50 features
+┌────────────────────────────────────────┐
+│ Employee sees: HR stuff + Finance +    │
+│ Purchasing + Admin + Reports + ...     │
+│ (overwhelmed, confused, can't find    │
+│  their leave balance!)                 │
+└────────────────────────────────────────┘
+
+RIGHT: Targeted apps per role
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+│ My Leave     │ │ Approve      │ │ Leave        │
+│ Requests     │ │ Requests     │ │ Reports      │
+│ (Employee)   │ │ (Manager)    │ │ (HR Admin)   │
+└──────────────┘ └──────────────┘ └──────────────┘
+Each person sees exactly what they need — nothing more.
 ```
 
 ---
 
-### Step 4: Test the Complete Workflow
+### Principle 2: Adaptive — One App, Every Screen
 
-**File: `tests/mini-project-test.http`**
-
-```http
-@base = http://localhost:4004/procurement
-
-### ═══════ SETUP ═══════
-
-### Create supplier
-POST {{base}}/Suppliers
-Content-Type: application/json
-
-{ "supplierName": "Global Parts Ltd", "contactPerson": "John Smith",
-  "email": "john@globalparts.com", "phone": "+44-20-1234", "city": "London" }
-
-### Create product
-POST {{base}}/Products
-Content-Type: application/json
-
-{ "productName": "Widget Pro", "description": "Premium widget",
-  "unitPrice": 25.00, "stock": 5, "minStock": 20, "unit": "EA",
-  "currency_code": "USD", "supplier_ID": "SUPPLIER-ID" }
-
-### ═══════ PO WORKFLOW ═══════
-
-### Create PO (auto-generates PO number!)
-POST {{base}}/PurchaseOrders
-Content-Type: application/json
-
-{ "supplier_ID": "SUPPLIER-ID", "requiredDate": "2026-06-15",
-  "priority": "High", "currency_code": "USD",
-  "notes": "Urgent restock needed" }
-
-### Add item
-POST {{base}}/PurchaseOrderItems
-Content-Type: application/json
-
-{ "po_ID": "PO-ID", "product_ID": "PRODUCT-ID",
-  "quantity": 100, "unitPrice": 18.50, "currency_code": "USD" }
-
-### Get summary before submitting
-GET {{base}}/PurchaseOrders(PO-ID)/ProcurementService.getSummary()
-
-### Submit
-POST {{base}}/PurchaseOrders(PO-ID)/ProcurementService.submit
-Content-Type: application/json
-{}
-
-### Approve
-POST {{base}}/PurchaseOrders(PO-ID)/ProcurementService.approve
-Content-Type: application/json
-{ "comment": "Good price, approved" }
-
-### Mark as ordered
-POST {{base}}/PurchaseOrders(PO-ID)/ProcurementService.markOrdered
-Content-Type: application/json
-{ "referenceNumber": "SUP-REF-2026-001" }
-
-### Receive goods (stock goes from 5 to 105!)
-POST {{base}}/PurchaseOrders(PO-ID)/ProcurementService.receiveGoods
-Content-Type: application/json
-{ "notes": "All items in good condition" }
-
-### ═══════ VERIFY ═══════
-
-### Check product stock
-GET {{base}}/Products(PRODUCT-ID)?$select=productName,stock
-
-### Dashboard
-GET {{base}}/getDashboard()
-
-### Low stock check
-GET {{base}}/getLowStockProducts(threshold=5)
 ```
+Desktop (1920px):
+┌────────────────────────────────────────────────────────┐
+│ [List]                    │      [Detail Panel]        │
+│ Order 1                   │  Order 1: Full details     │
+│ Order 2  ← selected      │  Items, amounts, status    │
+│ Order 3                   │  Actions: Approve, Reject  │
+└────────────────────────────────────────────────────────┘
+
+Tablet (768px):
+┌──────────────────────────────────┐
+│ [List — full width]              │
+│ Order 1                          │
+│ Order 2                          │ → tap → full detail page
+│ Order 3                          │
+└──────────────────────────────────┘
+
+Phone (375px):
+┌──────────────────┐
+│ Order 1          │
+│ Order 2          │ → tap → detail
+│ Order 3          │
+└──────────────────┘
+```
+
+Same data, same app — layout adapts to screen size. No separate mobile app needed!
+
+---
+
+### Principle 3: Coherent — Learn One, Know All
+
+Every Fiori app uses the same:
+- Header layout
+- Navigation patterns (back button, breadcrumbs)
+- Color meanings (green = positive, red = negative, orange = warning)
+- Action button placement (top-right)
+- Table behaviors (sort, filter, group)
+- Form layouts
+
+**Result:** A user who knows "My Leave Requests" can immediately use "My Purchase Orders" without training.
+
+---
+
+### Principle 4: Simple — The 1-1-3 Rule
+
+```
+1 User     → designed for ONE specific role
+1 Use Case → solves ONE specific task
+3 Screens  → completed in maximum 3 screens (list → detail → edit)
+```
+
+**Examples:**
+| App | User | Task | Screens |
+|-----|------|------|---------|
+| Approve Leave | Manager | Review and approve/reject | List → Detail + Action |
+| Create PO | Buyer | Submit a purchase order | Form → Review → Confirm |
+| Track Delivery | Customer | See where my order is | Status page |
+
+---
+
+### Principle 5: Delightful — Not Just Functional
+
+- Smooth animations (not jarring page jumps)
+- Instant feedback (button changes color on click)
+- Friendly messages ("Your order is confirmed!" not "Record 4823 updated successfully")
+- Fast loading (skeleton screens, not blank waits)
+- Celebrate success (checkmark animation on completion)
+
+---
+
+### What is SAP Fiori Launchpad (FLP)?
+
+The **Fiori Launchpad** is like the "home screen" of your phone — but for SAP apps.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  SAP Fiori Launchpad                           👤 John Doe  │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐      │
+│  │  📋     │  │  📝     │  │  📊     │  │  ✅     │      │
+│  │ My POs  │  │ Create  │  │ Reports │  │ Approve │      │
+│  │         │  │ Order   │  │         │  │ Orders  │      │
+│  │   3     │  │         │  │         │  │   7     │      │
+│  └─────────┘  └─────────┘  └─────────┘  └─────────┘      │
+│                                                             │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐                    │
+│  │  🏢     │  │  👥     │  │  💰     │                    │
+│  │ Manage  │  │ Team    │  │ Budget  │                    │
+│  │ Products│  │ Members │  │ Monitor │                    │
+│  └─────────┘  └─────────┘  └─────────┘                    │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key features of FLP:**
+- Each tile = one Fiori app
+- Tiles show live counts/KPIs (badge "7" means 7 pending approvals)
+- Personalized per user role (manager sees approval tiles, employee sees request tiles)
+- Single sign-on (login once, access all apps)
+- Runs in a browser — no installation needed
+- Works on BTP, S/4HANA, or any SAP system
+
+---
+
+### Fiori Launchpad Architecture
+
+```
+User opens browser → Fiori Launchpad → Clicks a Tile → Fiori App loads
+                                                              │
+                                                              ▼
+                                                    ┌──────────────────┐
+                                                    │  OData Service   │
+                                                    │  (YOUR CAP app!) │
+                                                    └──────────────────┘
+```
+
+Your CAP service provides the DATA. Fiori provides the UI. They connect via OData.
+
+---
+
+## Session 2: SAPUI5 Framework & Fiori Elements vs Freestyle (10:45 - 12:00)
+
+### What is SAPUI5?
+
+**SAPUI5** is the JavaScript UI framework that Fiori apps are built with. Think of it as SAP's version of React or Angular.
+
+```
+Fiori = Design rules (HOW it should look)
+UI5   = Technology (HOW you build it)
+
+Analogy:
+  Fiori = Architecture blueprint (what the house should look like)
+  UI5   = Bricks and tools (what you build it with)
+```
+
+**Key facts about SAPUI5:**
+- JavaScript-based framework (runs in browser)
+- MVC architecture (Model-View-Controller)
+- Rich set of UI controls (tables, forms, charts, buttons, dialogs)
+- Built-in responsive design
+- OData integration out of the box
+- Open-source version available: **OpenUI5**
+
+---
+
+### UI5 Controls — What You Get
+
+SAPUI5 provides 500+ pre-built UI controls:
+
+| Category | Controls |
+|----------|----------|
+| **Display** | Text, Label, Image, Icon, Avatar |
+| **Input** | Input Field, DatePicker, Select, MultiInput, Switch |
+| **Container** | Page, Panel, Dialog, Popover, VBox, HBox |
+| **List** | Table, List, Tree, Timeline |
+| **Chart** | Bar, Line, Pie, Donut (via VizFrame) |
+| **Navigation** | Shell, NavContainer, Breadcrumbs, Tabs |
+| **Action** | Button, MenuButton, SegmentedButton, Link |
+| **Feedback** | MessageBox, MessageStrip, BusyIndicator, Rating |
+
+You don't build these from scratch — you use them like Lego blocks!
+
+---
+
+### Two Ways to Build Fiori Apps
+
+Here's the most important concept of today:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│         TWO APPROACHES TO BUILD FIORI UIS                    │
+├──────────────────────────────┬──────────────────────────────┤
+│                              │                              │
+│     FIORI ELEMENTS           │      FREESTYLE UI5           │
+│     (Annotation-driven)      │      (Code-driven)           │
+│                              │                              │
+│  "Tell me WHAT to show"      │  "Tell me HOW to show it"   │
+│                              │                              │
+│  You write: annotations      │  You write: XML views +     │
+│  CAP generates: the UI       │  JavaScript controllers     │
+│                              │                              │
+│  Like ordering from a menu   │  Like cooking from scratch  │
+│                              │                              │
+│  ┌──────────────────────┐    │  ┌──────────────────────┐   │
+│  │  @UI.LineItem: [...]  │    │  │  <Table items="..."   │   │
+│  │  @UI.HeaderInfo: {..} │    │  │    <Column>           │   │
+│  │  @UI.FieldGroup: ...  │    │  │      <Text text=".."/>│   │
+│  │                       │    │  │    </Column>          │   │
+│  │  → CAP auto-generates │    │  │  </Table>             │   │
+│  │    a complete UI!     │    │  │  + controller.js      │   │
+│  └──────────────────────┘    │  └──────────────────────┘   │
+│                              │                              │
+└──────────────────────────────┴──────────────────────────────┘
+```
+
+---
+
+
+https://openui5.org/documentation.html
+
+https://ui5.sap.com/#/
+
