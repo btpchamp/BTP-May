@@ -8,6 +8,8 @@ entity Products : cuid, managed {
   productName : String(100);
   stock       : Integer;
   // Virtual/computed field for criticality
+
+    stockCriticality  : Integer @Core.Computed;
 }
 
 // In annotations:
