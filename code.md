@@ -1,105 +1,136 @@
-## Session 3: Hands-on — Generate a Fiori Elements App (12:00 - 13:00)
+## What You'll Learn Today
 
-### Step 1: Ensure Your CAP Project is Ready
-
-Your project should have:
-```
-my-cap-project/
-├── db/
-│   └── schema.cds        (with Products, Suppliers, etc.)
-├── srv/
-│   ├── catalog-service.cds
-│   └── catalog-service.js
-├── app/                   ← We'll add stuff here!
-└── package.json
-```
-
-Run `cds watch` to verify everything is working:
-```bash
-cds watch
-```
+By the end of this session, you will be able to:
+- Configure multi-level navigation (List → Object → Sub-Object Page)
+- Set up Value Helps (`@Common.ValueList`) for dropdown fields
+- Apply criticality-based color coding to any field
+- Use `@UI.DataPoint` for KPIs, progress indicators, and ratings
+- Understand `@UI.Chart` annotations for visual data
+- Choose the right table type (Responsive, Grid, Analytical)
+- Build a complete 3-level Fiori app for Purchase Order management
 
 ---
 
-### Step 2: Generate the Fiori Elements App
+## Day 22 Recap — Quick Fire (09:00 - 09:15)
 
-**Option A: Using SAP Fiori Tools Generator (in BAS/VS Code)**
+1. `@UI.SelectionFields` drives which UI component? → _____
+2. `@UI.LineItem` drives which UI component? → _____
+3. `@UI.HeaderInfo.Title` sets what on the Object Page? → _____
+4. To show child entities as a table, the Facet target is? → _____
+5. `@UI.FieldGroup#Name` organizes fields into what? → _____
+6. Criticality value `1` shows which color? → _____
+7. `@UI.DataPoint` values appear where? → _____
+8. The file for annotations in a CAP project is typically? → _____
 
-1. Open the Command Palette: `Ctrl+Shift+P` (or `Cmd+Shift+P` on Mac)
-2. Search for: "Fiori: Open Application Generator"
-3. Select Template: **List Report Page**
-4. Data Source: **Use a Local CAP Project**
-5. Choose your CAP project folder
-6. Select OData Service: **CatalogService**
-7. Main Entity: **Products**
-8. Navigation Entity: (leave blank or select Reviews if available)
-9. Module Name: `products` (this creates `app/products/`)
-10. Application Title: "Manage Products"
-11. Add FLP config: Yes
+<details>
+<summary>Answers</summary>
 
-**Option B: Manual Setup (if generator not available)**
+1. The **filter bar** (which fields can be filtered)
+2. The **table columns** (List Report)
+3. The **main title** of the record (e.g., "Laptop Pro")
+4. `'navigationProperty/@UI.LineItem'` (e.g., `'items/@UI.LineItem'`)
+5. A **form section** on the Object Page
+6. **Red** (1=Negative/Error, 2=Orange/Warning, 3=Green/Success)
+7. In the Object Page **header** (as KPI boxes, referenced by HeaderFacets)
+8. `srv/annotations.cds` or `app/<appname>/annotations.cds`
 
-Create these files manually:
+</details>
 
-**File: `app/products/webapp/manifest.json`**
+---
+
+## Session 1: Multi-Page Navigation & Drill-Down (09:15 - 10:30)
+
+### The Standard Navigation Pattern
+
+Most business apps have this drill-down flow:
+
+```
+Level 1                Level 2                  Level 3
+LIST REPORT    ───►    OBJECT PAGE      ───►    SUB-OBJECT PAGE
+(All Orders)           (One Order)              (One Order Item)
+
+┌────────────┐         ┌────────────────┐       ┌────────────────┐
+│ SO-001  ▸  │──click─►│ Order: SO-001  │       │ Item: Laptop   │
+│ SO-002     │         │ § General Info │       │ Qty: 5         │
+│ SO-003     │         │ § Items:       │       │ Price: $999    │
+│            │         │  Laptop  ▸ ────│─click─►│ § Details      │
+│            │         │  Mouse   ▸     │       │ § Delivery     │
+└────────────┘         └────────────────┘       └────────────────┘
+```
+
+**Why 3 levels?**
+- Level 1: Browse and find the right order
+- Level 2: See order details + summary of items
+- Level 3: See full details of ONE specific item (delivery tracking, specifications, etc.)
+
+---
+
+### How Navigation Works in Fiori Elements
+
+Navigation is AUTOMATIC when you have:
+1. A List Report → clicking a row navigates to the Object Page
+2. A Composition/Association → clicking a child row navigates to the Sub-Object Page
+
+**You DON'T write navigation code!** Fiori Elements handles it based on:
+- Your service entity relationships (Associations/Compositions)
+- Your `manifest.json` routing configuration
+- Your annotations (which child entities are shown as tables)
+
+---
+
+### Configuring 3-Level Navigation in manifest.json
+
 ```json
 {
-  "_version": "1.49.0",
-  "sap.app": {
-    "id": "products",
-    "type": "application",
-    "title": "Manage Products",
-    "dataSources": {
-      "mainService": {
-        "uri": "/catalog/",
-        "type": "OData",
-        "settings": { "odataVersion": "4.0" }
-      }
-    }
-  },
   "sap.ui5": {
-    "models": {
-      "": {
-        "dataSource": "mainService",
-        "settings": {
-          "synchronizationMode": "None",
-          "operationMode": "Server",
-          "autoExpandSelect": true
-        }
-      }
-    },
     "routing": {
       "routes": [
         {
           "pattern": ":?query:",
-          "name": "ProductsList",
-          "target": "ProductsList"
+          "name": "OrdersList",
+          "target": "OrdersList"
         },
         {
-          "pattern": "Products({key}):?query:",
-          "name": "ProductsObjectPage",
-          "target": "ProductsObjectPage"
+          "pattern": "Orders({key}):?query:",
+          "name": "OrdersObjectPage",
+          "target": "OrdersObjectPage"
+        },
+        {
+          "pattern": "Orders({key})/items({key2}):?query:",
+          "name": "OrderItemsObjectPage",
+          "target": "OrderItemsObjectPage"
         }
       ],
       "targets": {
-        "ProductsList": {
+        "OrdersList": {
           "type": "Component",
-          "id": "ProductsList",
+          "id": "OrdersList",
           "name": "sap.fe.templates.ListReport",
           "options": {
-            "settings": {
-              "entitySet": "Products"
-            }
+            "settings": { "entitySet": "Orders" }
           }
         },
-        "ProductsObjectPage": {
+        "OrdersObjectPage": {
           "type": "Component",
-          "id": "ProductsObjectPage",
+          "id": "OrdersObjectPage",
           "name": "sap.fe.templates.ObjectPage",
           "options": {
             "settings": {
-              "entitySet": "Products"
+              "entitySet": "Orders",
+              "navigation": {
+                "items": {
+                  "detail": { "route": "OrderItemsObjectPage" }
+                }
+              }
             }
+          }
+        },
+        "OrderItemsObjectPage": {
+          "type": "Component",
+          "id": "OrderItemsObjectPage",
+          "name": "sap.fe.templates.ObjectPage",
+          "options": {
+            "settings": { "entitySet": "OrderItems" }
           }
         }
       }
@@ -108,184 +139,89 @@ Create these files manually:
 }
 ```
 
-**File: `app/products/webapp/Component.js`**
-```javascript
-sap.ui.define(["sap/fe/core/AppComponent"], function(AppComponent) {
-  return AppComponent.extend("products.Component", {
-    metadata: { manifest: "json" }
-  });
-});
-```
-
-**File: `app/products/webapp/index.html`**
-```html
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Manage Products</title>
-  <script id="sap-ui-bootstrap"
-    src="https://ui5.sap.com/resources/sap-ui-core.js"
-    data-sap-ui-theme="sap_horizon"
-    data-sap-ui-resourceroots='{ "products": "./" }'
-    data-sap-ui-compatVersion="edge"
-    data-sap-ui-async="true"
-    data-sap-ui-frameOptions="allow">
-  </script>
-  <script>
-    sap.ui.require(["sap/fe/core/ComponentContainer"], function(ComponentContainer) {
-      new ComponentContainer({
-        name: "products",
-        settings: { id: "products" },
-        async: true
-      }).placeAt("content");
-    });
-  </script>
-</head>
-<body class="sapUiBody" id="content"></body>
-</html>
-```
+**Key parts:**
+- **Route pattern** `"Orders({key})/items({key2})"` → defines the URL path for level 3
+- **Navigation config** in the parent target → tells Fiori which child entity navigates where
+- **Each level** gets its own target with `sap.fe.templates.ObjectPage`
 
 ---
 
-### Step 3: Add the App to `package.json`
+### Making Child Rows Clickable (Navigation from Table)
 
-Add this to your project root `package.json` (the `sapux` section tells CAP about your Fiori app):
+For the items table on the Order's Object Page to be clickable (navigating to the item detail), you need:
 
-```json
-{
-  "sapux": ["app/products"]
-}
-```
+1. The `items` entity exposed in the service
+2. A route defined for it in manifest.json
+3. The `navigation` property in the parent's target settings
 
-Or add an `xs-app.json` in the app folder or let CAP auto-serve static files.
+The items table on the Order page automatically shows a "▸" chevron on each row, indicating it's navigable.
 
 ---
 
-### Step 4: Restart and Test
-
-```bash
-cds watch
-```
-
-Open the browser:
-- `http://localhost:4004` → Service index should now show a link to your Fiori app
-- `http://localhost:4004/products/webapp/index.html` → Your Fiori Elements app!
-
-**What you should see:** A basic List Report with all Product fields (unsorted, no filter bar yet). It works, but it's not pretty. We need annotations to make it beautiful!
-
----
-
-
-## Session 4: UI Annotations — The Complete Syntax (13:45 - 14:45)
-
-### Create the Annotations File
-
-**File: `srv/annotations.cds`** (or `app/products/annotations.cds`)
+### Annotations for Each Level
 
 ```cds
-using { CatalogService } from './catalog-service';
-
-// ═══════════════════════════════════════════════════
-// PRODUCTS — Full Annotation Set
-// ═══════════════════════════════════════════════════
-
-annotate CatalogService.Products with @UI: {
-
-  // ─── LIST REPORT: Filter Bar ───────────────────
-  SelectionFields: [
-    productName,
-    price,
-    stock,
-    category_ID,
-    supplier_ID,
-    isAvailable
-  ],
-
-  // ─── LIST REPORT: Table Columns ────────────────
+// ─── LEVEL 1: Orders List Report ────────────────
+annotate OrderService.Orders with @UI: {
+  SelectionFields: [ orderNumber, status, customer_ID, orderDate ],
   LineItem: [
-    { Value: productName, Label: 'Product', ![@UI.Importance]: #High },
-    { Value: price, Label: 'Price' },
-    { Value: stock, Label: 'Stock', Criticality: stockCriticality },
-    { Value: rating, Label: 'Rating' },
-    { Value: supplier.supplierName, Label: 'Supplier' },
-    { Value: category.categoryName, Label: 'Category', ![@UI.Importance]: #Low },
-    { Value: isAvailable, Label: 'Available' }
-  ],
+    { Value: orderNumber, Label: 'Order' },
+    { Value: customer.customerName, Label: 'Customer' },
+    { Value: orderDate, Label: 'Date' },
+    { Value: grossAmount, Label: 'Amount' },
+    { Value: status, Label: 'Status', Criticality: statusCriticality }
+  ]
+};
 
-  // ─── OBJECT PAGE: Header ───────────────────────
+// ─── LEVEL 2: Order Object Page ─────────────────
+annotate OrderService.Orders with @UI: {
   HeaderInfo: {
-    TypeName: 'Product',
-    TypeNamePlural: 'Products',
-    Title: { Value: productName },
-    Description: { Value: description }
+    TypeName: 'Sales Order',
+    TypeNamePlural: 'Sales Orders',
+    Title: { Value: orderNumber },
+    Description: { Value: customer.customerName }
   },
-
-  // ─── OBJECT PAGE: Header KPIs ─────────────────
-  HeaderFacets: [
-    { $Type: 'UI.ReferenceFacet', Target: '@UI.DataPoint#Price' },
-    { $Type: 'UI.ReferenceFacet', Target: '@UI.DataPoint#Stock' },
-    { $Type: 'UI.ReferenceFacet', Target: '@UI.DataPoint#Rating' }
-  ],
-  DataPoint#Price: {
-    Value: price,
-    Title: 'Price'
-  },
-  DataPoint#Stock: {
-    Value: stock,
-    Title: 'In Stock',
-    Criticality: stockCriticality
-  },
-  DataPoint#Rating: {
-    Value: rating,
-    Title: 'Rating',
-    TargetValue: 5,
-    Visualization: #Rating
-  },
-
-  // ─── OBJECT PAGE: Sections ────────────────────
   Facets: [
-    {
-      $Type: 'UI.ReferenceFacet',
-      Target: '@UI.FieldGroup#GeneralInfo',
-      Label: 'General Information'
-    },
-    {
-      $Type: 'UI.ReferenceFacet',
-      Target: '@UI.FieldGroup#StockPricing',
-      Label: 'Stock & Pricing'
-    },
-    {
-      $Type: 'UI.ReferenceFacet',
-      Target: '@UI.FieldGroup#Admin',
-      Label: 'Administration'
-    }
+    { $Type: 'UI.ReferenceFacet', Target: '@UI.FieldGroup#OrderInfo', Label: 'Order Details' },
+    { $Type: 'UI.ReferenceFacet', Target: 'items/@UI.LineItem', Label: 'Line Items' }
   ],
+  FieldGroup#OrderInfo: {
+    Data: [
+      { Value: orderDate },
+      { Value: status },
+      { Value: netAmount },
+      { Value: taxAmount },
+      { Value: grossAmount }
+    ]
+  }
+};
 
-  // ─── FIELD GROUPS (Section Content) ────────────
-  FieldGroup#GeneralInfo: {
-    Data: [
-      { Value: productName, Label: 'Product Name' },
-      { Value: description, Label: 'Description' },
-      { Value: category.categoryName, Label: 'Category' },
-      { Value: supplier.supplierName, Label: 'Supplier' }
-    ]
+// ─── LEVEL 3: Order Item Sub-Object Page ────────
+annotate OrderService.OrderItems with @UI: {
+  // This LineItem is used in the ORDER's object page (parent table)
+  LineItem: [
+    { Value: product.productName, Label: 'Product' },
+    { Value: quantity, Label: 'Qty' },
+    { Value: unitPrice, Label: 'Unit Price' },
+    { Value: netAmount, Label: 'Total' }
+  ],
+  // This HeaderInfo is used when the item has its OWN detail page
+  HeaderInfo: {
+    TypeName: 'Order Item',
+    TypeNamePlural: 'Order Items',
+    Title: { Value: product.productName },
+    Description: { Value: order.orderNumber }
   },
-  FieldGroup#StockPricing: {
+  Facets: [
+    { $Type: 'UI.ReferenceFacet', Target: '@UI.FieldGroup#ItemDetails', Label: 'Item Details' }
+  ],
+  FieldGroup#ItemDetails: {
     Data: [
-      { Value: price, Label: 'Price' },
-      { Value: stock, Label: 'Current Stock' },
-      { Value: minStock, Label: 'Minimum Stock Level' },
-      { Value: rating, Label: 'Customer Rating' },
-      { Value: isAvailable, Label: 'Available for Sale' }
-    ]
-  },
-  FieldGroup#Admin: {
-    Data: [
-      { Value: createdAt, Label: 'Created On' },
-      { Value: createdBy, Label: 'Created By' },
-      { Value: modifiedAt, Label: 'Last Modified' },
-      { Value: modifiedBy, Label: 'Modified By' }
+      { Value: product.productName, Label: 'Product' },
+      { Value: quantity, Label: 'Quantity' },
+      { Value: unitPrice, Label: 'Unit Price' },
+      { Value: netAmount, Label: 'Line Total' },
+      { Value: currency_code, Label: 'Currency' }
     ]
   }
 };
@@ -293,65 +229,203 @@ annotate CatalogService.Products with @UI: {
 
 ---
 
-### Annotation for Individual Fields (Labels & Visibility)
+### Navigation Breadcrumb
 
-You can also annotate fields directly:
+When the user navigates deeper, Fiori Elements shows a breadcrumb trail:
 
-```cds
-annotate CatalogService.Products with {
-  productName @title: 'Product Name';
-  price       @title: 'Unit Price' @Measures.ISOCurrency: currency_code;
-  stock       @title: 'Stock Quantity';
-  rating      @title: 'Avg. Rating';
-  description @UI.MultiLineText: true;       // Renders as textarea
-  isAvailable @title: 'Available';
-};
+```
+Products > Laptop Pro > Review #3
+   ↑          ↑            ↑
+ Level 1   Level 2     Level 3 (current)
 ```
 
-**`@title`** sets the default label everywhere (table headers, form labels, filter labels).
-
-**`@Measures.ISOCurrency`** tells Fiori to show the currency symbol next to the price.
-
-**`@UI.MultiLineText`** renders the field as a multiline text area instead of a single-line input.
+Users can click any level to go back. This is automatic — no coding needed!
 
 ---
 
-### Value Help — Dropdown for Associations
+## Session 2: Value Helps & Dropdown Configurations (10:45 - 12:00)
 
-When a field is an association (like `category` or `supplier`), Fiori Elements automatically provides a Value Help dialog. But you can enhance it:
+### What is a Value Help?
+
+When users fill in a form field that references another entity (like selecting a Category or Supplier), they need a way to pick from valid values. A **Value Help** provides this:
+
+```
+Without Value Help:                 With Value Help:
+┌─────────────────────┐            ┌─────────────────────┐
+│ Category: [________]│            │ Category: [▼ Select ]│ ← Click
+│ (type the UUID?? 🤯)│            │                     │
+└─────────────────────┘            │  ┌───────────────┐  │
+                                   │  │ Electronics   │  │ ← Pick from list!
+                                   │  │ Accessories   │  │
+                                   │  │ Software      │  │
+                                   │  │ Furniture     │  │
+                                   │  └───────────────┘  │
+                                   └─────────────────────┘
+```
+
+---
+
+### How Value Help Works
+
+1. User clicks the field (or the dropdown icon)
+2. Fiori Elements reads the `@Common.ValueList` annotation
+3. It calls the specified entity's OData endpoint
+4. It shows the values in a dropdown or dialog
+5. User picks a value → the ID is saved to the field
+
+---
+
+### `@Common.ValueList` — The Annotation
 
 ```cds
 annotate CatalogService.Products with {
   category @(
+    Common: {
+      Text: category.categoryName,          // Show name, not ID
+      TextArrangement: #TextOnly,           // Only show text (hide ID)
+      ValueList: {
+        Label: 'Categories',
+        CollectionPath: 'Categories',        // Which entity to fetch values from
+        Parameters: [
+          {
+            $Type: 'Common.ValueListParameterInOut',
+            LocalDataProperty: category_ID,  // Field in Products
+            ValueListProperty: 'ID'          // Field in Categories
+          },
+          {
+            $Type: 'Common.ValueListParameterDisplayOnly',
+            ValueListProperty: 'categoryName' // Show this column in the dialog
+          },
+          {
+            $Type: 'Common.ValueListParameterDisplayOnly',
+            ValueListProperty: 'description'  // Also show description
+          }
+        ]
+      }
+    }
+  );
+};
+```
+
+---
+
+### Breaking Down the ValueList Annotation
+
+```
+@Common.ValueList: {
+  Label: 'Categories',              ← Title of the value help dialog
+  CollectionPath: 'Categories',     ← Entity to query for values
+  Parameters: [
+    InOut:   Maps selected value to the form field (ID ↔ category_ID)
+    Display: Additional columns shown in the picker (name, description)
+  ]
+}
+```
+
+**Parameter Types:**
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| `ValueListParameterInOut` | Maps the selected ID to the local field | `category_ID ↔ ID` |
+| `ValueListParameterOut` | Sets a local field from the selection (one-way) | Set `categoryName` from selected |
+| `ValueListParameterDisplayOnly` | Extra column shown in picker (not mapped) | Show description |
+| `ValueListParameterIn` | Pre-filter the list based on another field | Filter by status |
+
+---
+
+### Simple Value Help — Dropdown Style
+
+For fields with few options (< 20 values), use a simple dropdown:
+
+```cds
+annotate CatalogService.Products with {
+  supplier @(
+    Common: {
+      Text: supplier.supplierName,
+      TextArrangement: #TextOnly,
+      ValueListWithFixedValues: false,    // false = dialog, true = dropdown
+      ValueList: {
+        CollectionPath: 'Suppliers',
+        Parameters: [
+          { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: supplier_ID, ValueListProperty: 'ID' },
+          { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'supplierName' },
+          { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'city' }
+        ]
+      }
+    }
+  );
+};
+```
+
+**For truly fixed lists (enums), use `ValueListWithFixedValues: true`:**
+
+```cds
+annotate CatalogService.Products with {
+  status @Common.ValueListWithFixedValues;
+};
+```
+
+This makes enum fields render as a simple dropdown without a search dialog.
+
+---
+
+### `@Common.Text` — Show Name Instead of ID
+
+By default, association fields show the raw UUID. Fix this with `@Common.Text`:
+
+```cds
+annotate CatalogService.Products with {
+  // Instead of showing "a1b2c3-d4e5..." show "Electronics"
+  category @Common.Text: category.categoryName;
+
+  // Instead of showing "s1t2u3-v4w5..." show "TechCorp Supplies"
+  supplier @Common.Text: supplier.supplierName;
+};
+
+// Control how text and ID appear together:
+annotate CatalogService.Products with {
+  category @Common.TextArrangement: #TextOnly;       // Show only "Electronics"
+  // Other options:
+  // #TextFirst   → "Electronics (a1b2c3...)"
+  // #TextLast    → "(a1b2c3...) Electronics"
+  // #TextOnly    → "Electronics"
+};
+```
+
+---
+
+### Value Help with Dependent Filtering
+
+Sometimes you want the value help to filter based on another field. Example: Show only products from the selected supplier:
+
+```cds
+annotate OrderService.OrderItems with {
+  product @(
     Common.ValueList: {
-      Label: 'Categories',
-      CollectionPath: 'Categories',
+      CollectionPath: 'Products',
       Parameters: [
-        { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: category_ID, ValueListProperty: 'ID' },
-        { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'categoryName' }
+        { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: product_ID, ValueListProperty: 'ID' },
+        { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'productName' },
+        { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'price' },
+        // Filter products by the order's supplier:
+        { $Type: 'Common.ValueListParameterIn', LocalDataProperty: 'order/supplier_ID', ValueListProperty: 'supplier_ID' }
       ]
     }
   );
 };
 ```
 
-This creates a dropdown/dialog showing category names when editing the category field.
-
 ---
 
-### Making Fields Read-Only or Hidden
+### Quick Reference: Value Help Patterns
 
-```cds
-annotate CatalogService.Products with {
-  // Read-only fields (can't edit)
-  createdAt  @UI.ReadOnly;
-  createdBy  @UI.ReadOnly;
-  ID         @UI.Hidden;          // Don't show UUID to users
-
-  // Required fields (shows * in forms)
-  productName @Common.FieldControl: #Mandatory;
-  price       @Common.FieldControl: #Mandatory;
-};
-```
+| Scenario | Approach |
+|----------|----------|
+| Enum fields (status, type) | `@Common.ValueListWithFixedValues` |
+| Small lookup table (< 20 items) | ValueList with dropdown appearance |
+| Large lookup table (> 20 items) | ValueList with dialog (default) |
+| Show name instead of UUID | `@Common.Text: nav.fieldName` |
+| Dependent filtering | `ValueListParameterIn` |
+| Hide UUID everywhere | `@Common.TextArrangement: #TextOnly` |
 
 ---
