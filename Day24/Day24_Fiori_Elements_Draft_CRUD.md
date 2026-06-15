@@ -258,9 +258,10 @@ In your CDS service definition, add `with draft` to your entity:
 // srv/purchasing-service.cds
 
 service PurchasingService @(path: '/purchasing') {
-  
+
+ @odata.draft.enabled: true
   entity PurchaseOrders as projection on db.PurchaseOrders
-    with draft;     // ← THIS IS ALL YOU NEED! 🎉
+    with draft;     // ← THIS IS ALL YOU NEED! 🎉 //either of the above annotation try it out!
 
   entity PurchaseOrderItems as projection on db.PurchaseOrderItems;
 }
