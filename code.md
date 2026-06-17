@@ -11,7 +11,7 @@ git init
 
 # 3. Check status — see all untracked files
 git status
-
+ada
 # 4. Create .gitignore FIRST (before adding files)
 # (see .gitignore content below)
 
