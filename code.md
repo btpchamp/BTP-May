@@ -1,215 +1,164 @@
-### The Flexible Programming Model
+## Session 3: Hands-on — Initialize, Commit & Branch (12:00 - 13:00)
 
-SAP introduced the **Flexible Programming Model** for Fiori Elements V4. It allows mixing annotations with custom code:
+### Exercise 1: Initialize and First Commit (15 minutes)
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  FLEXIBILITY SPECTRUM                                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Pure Fiori        Fiori Elements          Freestyle        │
-│  Elements          + Extensions            UI5              │
-│  (annotations      (custom sections,       (100% manual    │
-│   only)            custom columns,          XML + JS)       │
-│                    custom actions)                           │
-│                                                             │
-│  ◄──────────────────────────────────────────────────────►  │
-│  Less Control                             More Control      │
-│  Less Code                                More Code         │
-│  More Consistency                         Less Consistency  │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+```bash
+# 1. Navigate to your CAP project
+cd ~/projects/po-management
 
-**What you can customize with extensions:**
-- Custom columns in tables
-- Custom sections on Object Page
-- Custom header content
-- Custom filter fields
-- Custom actions with complex dialogs
-- Controller extensions (JavaScript hooks)
+# 2. Initialize git (if not already done)
+git init
 
-**When to use extensions:**
-- When annotations can't express what you need
-- When you need a chart, custom visualization, or complex interaction
-- When the business requires something non-standard
+# 3. Check status — see all untracked files
+git status
 
----
+# 4. Create .gitignore FIRST (before adding files)
+# (see .gitignore content below)
 
-### UI Annotation Summary Card
+# 5. Add all files
+git add .
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│             ANNOTATION CHEAT SHEET                            │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  LIST REPORT:                                               │
-│    @UI.SelectionFields     → Filter bar fields              │
-│    @UI.LineItem            → Table columns                  │
-│    @UI.LineItem + DataFieldForAction → Inline buttons       │
-│                                                             │
-│  OBJECT PAGE:                                               │
-│    @UI.HeaderInfo          → Title + subtitle               │
-│    @UI.HeaderFacets        → KPI boxes in header            │
-│    @UI.DataPoint           → KPI values                     │
-│    @UI.Facets              → Page sections                  │
-│    @UI.FieldGroup          → Form fields in a section       │
-│    @UI.Identification      → Action buttons in toolbar      │
-│    nav/@UI.LineItem        → Child entity table section     │
-│                                                             │
-│  FIELD-LEVEL:                                               │
-│    @title                  → Default label everywhere       │
-│    @Common.Text            → Show name instead of ID        │
-│    @Common.TextArrangement → #TextOnly / #TextFirst         │
-│    @Common.ValueList       → Dropdown/dialog picker         │
-│    @Common.FieldControl    → ReadOnly/Optional/Mandatory    │
-│    @UI.Hidden              → Don't show this field          │
-│    @UI.MultiLineText       → Textarea for long text         │
-│    @Measures.ISOCurrency   → Show currency with price       │
-│    Criticality             → Color coding (1/2/3)           │
-│                                                             │
-│  ACTIONS & BEHAVIOR:                                        │
-│    @Core.OperationAvailable → Show/hide action buttons      │
-│    @Common.IsActionCritical → Confirmation dialog           │
-│    @Common.SideEffects      → Auto-refresh on field change  │
-│    with draft               → Enable draft editing          │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+# 6. Make your first commit
+git commit -m "Initial project setup: PO Management CAP application"
+
+# 7. Verify
+git log --oneline
 ```
 
 ---
 
-## Session 3: Hands-on — Fix Issues & Polish PO App (12:00 - 13:00)
+### The `.gitignore` File for CAP Projects
 
-### Exercise 1: Debug These Annotation Problems (20 minutes)
+**Create this file at the project root: `.gitignore`**
 
-Below are broken annotations. Find and fix each issue:
+```gitignore
+# Node.js
+node_modules/
+package-lock.json
 
-**Problem A:**
-```cds
-// The table shows all 15 fields instead of just 4
-annotate PurchasingService.PurchaseOrders with @UI: {
-  LineItems: [
-    { Value: poNumber },
-    { Value: supplier.supplierName },
-    { Value: totalAmount },
-    { Value: status }
-  ]
-};
+# CAP generated files
+gen/
+app/*/dist/
+
+# Database files (local SQLite)
+db/*.db
+db/*.sqlite
+*.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files (NEVER commit secrets!)
+.env
+default-env.json
+*.pem
+*.key
+
+# Build artifacts
+dist/
+mta_archives/
+*.mtar
+
+# Logs
+*.log
+npm-debug.log*
 ```
 
-<details>
-<summary>Fix</summary>
-
-**Issue:** `LineItems` should be `LineItem` (no plural 's')!
-
-```cds
-LineItem: [  // ← Correct: "LineItem" not "LineItems"
-  { Value: poNumber },
-  ...
-]
-```
-</details>
+**Why `.gitignore` matters:**
+- `node_modules/` = 30,000+ files! Never commit this (use `npm install` to recreate)
+- `*.db` = SQLite databases are local dev data (regenerated by `cds deploy`)
+- `.env` = Contains secrets (API keys, passwords) — NEVER in Git!
+- `gen/` = Generated files that can be recreated
 
 ---
 
-**Problem B:**
-```cds
-// Object Page shows "Unknown" for supplier field
-annotate PurchasingService.PurchaseOrders with {
-  supplier @Common.Text: supplierName;
-};
+### Exercise 2: Make Changes and Commit (15 minutes)
+
+```bash
+# 1. Create a new file
+echo "// Product validation handler" > srv/product-validation.js
+
+# 2. Check what changed
+git status
+# Output: new file: srv/product-validation.js
+
+# 3. Stage the file
+git add srv/product-validation.js
+
+# 4. Commit with a message
+git commit -m "Add product validation handler skeleton"
+
+# 5. Make another change (edit schema.cds — add a field)
+# ... edit the file ...
+
+# 6. See the diff
+git diff db/schema.cds
+
+# 7. Stage and commit
+git add db/schema.cds
+git commit -m "Add rating field to Products entity"
+
+# 8. View history
+git log --oneline
 ```
-
-<details>
-<summary>Fix</summary>
-
-**Issue:** Must use navigation path `supplier.supplierName` (not just `supplierName`).
-
-```cds
-supplier @Common.Text: supplier.supplierName;  // ← Need the full path!
-```
-</details>
 
 ---
 
-**Problem C:**
-```cds
-// Items table doesn't appear on the Object Page
-annotate PurchasingService.PurchaseOrders with @UI.Facets: [
-  { $Type: 'UI.ReferenceFacet', Target: '@UI.FieldGroup#General', Label: 'General' },
-  { $Type: 'UI.ReferenceFacet', Target: 'purchaseOrderItems/@UI.LineItem', Label: 'Items' }
-];
+### Exercise 3: Create and Work on a Branch (30 minutes)
+
+```bash
+# 1. Create a feature branch
+git checkout -b feature/add-supplier-validation
+
+# 2. Verify you're on the new branch
+git branch
+# Output:
+#   main
+# * feature/add-supplier-validation
+
+# 3. Make changes (add validation logic in handler)
+# ... edit srv/purchasing-service.js ...
+
+# 4. Commit on the feature branch
+git add srv/purchasing-service.js
+git commit -m "Add supplier existence check in PO validation"
+
+# 5. Make another change and commit
+# ... edit srv/annotations.cds ...
+git add srv/annotations.cds
+git commit -m "Add supplier value help annotation"
+
+# 6. View log (shows feature branch commits)
+git log --oneline
+# Output:
+# aaa1111 Add supplier value help annotation
+# bbb2222 Add supplier existence check in PO validation
+# ccc3333 Add rating field to Products entity      ← from main
+# ddd4444 Initial project setup
+
+# 7. Switch back to main (your feature changes disappear from files!)
+git checkout main
+
+# 8. Look at your files — feature changes are gone! (They're on the branch)
+git log --oneline
+# Output: only original commits
+
+# 9. Merge the feature branch into main
+git merge feature/add-supplier-validation
+# Output: Fast-forward merge. Now main has the feature changes!
+
+# 10. Delete the merged branch
+git branch -d feature/add-supplier-validation
+
+# 11. Verify
+git log --oneline
+# All commits now visible on main!
 ```
-
-<details>
-<summary>Fix</summary>
-
-**Issue:** The navigation property name is probably `items` (as defined in the CDS model), not `purchaseOrderItems`.
-
-```cds
-{ $Type: 'UI.ReferenceFacet', Target: 'items/@UI.LineItem', Label: 'Items' }
-// ↑ Must match the exact association/composition name in your CDS entity!
-```
-
-Check your schema: if it says `items : Composition of many PurchaseOrderItems`, then use `'items/@UI.LineItem'`.
-</details>
-
----
-
-**Problem D:**
-```cds
-// Action button "Submit" never appears
-annotate PurchasingService.PurchaseOrders with @UI.Identification: [
-  { $Type: 'UI.DataFieldForAction', Action: 'submit', Label: 'Submit' }
-];
-```
-
-<details>
-<summary>Fix</summary>
-
-**Issue:** Action must include the full service name: `PurchasingService.submit`.
-
-```cds
-{ $Type: 'UI.DataFieldForAction', Action: 'PurchasingService.submit', Label: 'Submit' }
-// ↑ Must be: ServiceName.actionName
-```
-</details>
-
----
-
-### Exercise 2: Polish Your PO App (40 minutes)
-
-Apply these improvements to your Purchase Order Management app:
-
-1. **Add `@title` to all fields** (centralized labels):
-```cds
-annotate PurchasingService.PurchaseOrders with {
-  poNumber     @title: 'PO Number';
-  status       @title: 'Status';
-  priority     @title: 'Priority';
-  totalAmount  @title: 'Total Amount';
-  orderDate    @title: 'Order Date';
-  expectedDate @title: 'Expected Delivery';
-  notes        @title: 'Notes'  @UI.MultiLineText;
-};
-```
-
-2. **Add FieldControl** (read-only after submission):
-```cds
-annotate PurchasingService.PurchaseOrders with {
-  poNumber @Common.FieldControl: poNumberEditable;
-  supplier @Common.FieldControl: supplierEditable;
-};
-```
-
-3. **Add semantic object status** for colored status badges:
-```cds
-annotate PurchasingService.PurchaseOrders with @UI.LineItem: [
-  { Value: status, Criticality: statusCriticality }
-];
-```
-
-4. **Ensure Value Help works** for supplier and products
-
-5. **Test the complete workflow:** Create → Save → Submit → Approve
