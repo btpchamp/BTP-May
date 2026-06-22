@@ -1,306 +1,496 @@
-## Session 4: Weekly Quiz — Days 26-30 (13:45 - 15:00)
 
-### Instructions
-- 30 questions covering Days 26-30 (Git, HANA, Auth, Security)
-- Time: 75 minutes
-- Passing score: 21/30 (70%)
+## What You'll Learn Today
 
----
-
-**Q1.** The 3 areas in Git are:
-- A) Branch, Merge, Push
-- B) Working Directory, Staging Area, Repository
-- C) Local, Remote, Cloud
-- D) Add, Commit, Deploy
-
-**Answer: B**
+By the end of this session, you will be able to:
+- Explain what the Application Router (approuter) is and why it's essential
+- Configure `xs-app.json` to route requests between UI and backend
+- Understand routes, destinations, and authentication flow through the approuter
+- Explain the MTA (Multi-Target Application) concept and why it exists
+- Read and understand every section of an `mta.yaml` file
+- Generate `mta.yaml` using `cds add mta` and customize it
+- Identify module types (nodejs, html5, deployer) and resource types (xsuaa, hdi-container)
 
 ---
 
-**Q2.** `git add .` followed by `git commit -m "message"` does what?
-- A) Pushes code to GitHub
-- B) Stages all changes and saves a permanent snapshot with a description
-- C) Creates a new branch
-- D) Deletes uncommitted changes
+## Day 30 Recap — Quick Fire (09:00 - 09:15)
 
-**Answer: B**
+1. Row-level security ensures users only see _____? → _____
+2. `where: 'createdBy = $user'` does what? → _____
+3. `$user.attr.Department` accesses what? → _____
+4. A common pitfall: trusting _____ instead of `req.user.id`? → _____
+5. Separation of duties means _____? → _____
+6. New entities without @restrict are _____? → _____
+7. 401 = _____, 403 = _____? → _____
+8. The 6 security layers are? → _____
 
----
+<details>
+<summary>Answers</summary>
 
-**Q3.** A feature branch allows you to:
-- A) Delete the main branch
-- B) Work in isolation without affecting the main/stable code
-- C) Speed up Git operations
-- D) Skip code review
+1. Their **own records** (filtered by identity/attributes)
+2. Filters so users **only see records they created**
+3. A **user attribute** (like department name) from xs-security.json
+4. Trusting **client-sent data** (`req.data.createdBy`) instead of server-validated token
+5. A user **cannot approve their own** PO/request (different person must review)
+6. **Open to all authenticated users** for all CRUD operations (security hole!)
+7. 401 = **Not authenticated**; 403 = **Authenticated but not authorized**
+8. Authentication → Service-level → Entity-level → Row-level → Instance-based → Field-level
 
-**Answer: B**
-
----
-
-**Q4.** `.gitignore` should include all of these EXCEPT:
-- A) `node_modules/`
-- B) `.env`
-- C) `db/schema.cds`
-- D) `*.db`
-
-**Answer: C** — `schema.cds` is your source code — it MUST be committed. The others are generated/secret/local.
+</details>
 
 ---
 
-**Q5.** A Pull Request (PR) is used for:
-- A) Downloading code
-- B) Requesting code review before merging a branch into main
-- C) Pulling from multiple remotes
-- D) Requesting git access
+## Session 1: What is the Application Router & Why We Need It (09:15 - 10:30)
 
-**Answer: B**
+### The Problem: Multiple Apps, One Entry Point
 
----
+In production, your CAP application has multiple components:
+- A backend service (Node.js running OData)
+- A Fiori UI app (static HTML/JS files)
+- An authentication service (XSUAA)
+- A database (HANA Cloud)
 
-**Q6.** `git pull --rebase origin main` is used when:
-- A) You want to delete remote changes
-- B) Your push was rejected because remote has newer commits
-- C) You want to create a new branch
-- D) You want to revert to an older version
+**How does the user's browser know where to send each request?**
 
-**Answer: B**
+```
+❌ WITHOUT APPROUTER:
+Browser must know every service URL:
+  "API is at https://service-abc123.cfapps.us10.hana.ondemand.com"
+  "UI is at https://ui-def456.cfapps.us10.hana.ondemand.com"
+  "Auth is at https://auth-ghi789.authentication.us10.hana.ondemand.com"
 
----
+User would need to manage tokens manually... 😱
+Cross-origin (CORS) issues everywhere...
+No single login experience...
+```
 
-**Q7.** SAP HANA stores data in:
-- A) Hard disk only
-- B) RAM (in-memory) for speed, with persistence to disk
-- C) The cloud only (no local storage)
-- D) CSV files
+```
+✅ WITH APPROUTER:
+Browser talks to ONE URL:
+  "Everything goes to https://my-app.cfapps.us10.hana.ondemand.com"
 
-**Answer: B**
+Approuter figures out where to send each request:
+  /catalog/Products → forward to backend service
+  /index.html      → serve from UI module
+  /login           → redirect to XSUAA
 
----
-
-**Q8.** Column store is better than row store for:
-- A) Inserting one record at a time
-- B) Aggregation queries (SUM, AVG, COUNT) on large datasets
-- C) Looking up a single record by primary key
-- D) Storing images
-
-**Answer: B**
-
----
-
-**Q9.** HDI Container provides:
-- A) More CPU for your app
-- B) Isolation between applications (each app has its own database objects)
-- C) A container for Docker images
-- D) User interface hosting
-
-**Answer: B**
+Single entry point. Single login. No CORS. Clean! 🎉
+```
 
 ---
 
-**Q10.** `cds add hana` configures your project to:
-- A) Create a HANA Cloud instance
-- B) Use HANA in production and SQLite in development (profile-based)
-- C) Delete the SQLite database
-- D) Generate HTML files
+### What is the Application Router?
 
-**Answer: B**
+The **Application Router** (approuter) is a small Node.js application that acts as a **reverse proxy** and **authentication gateway** for your entire application.
 
----
-
-**Q11.** In HANA SQL, to get the top 5 most expensive products:
-- A) `SELECT * FROM Products LIMIT 5 ORDER BY price DESC`
-- B) `SELECT TOP 5 * FROM COM_EPM_PRODUCTS ORDER BY PRICE DESC`
-- C) `SELECT * FROM Products WHERE ROWNUM <= 5`
-- D) `SELECT FIRST 5 FROM Products`
-
-**Answer: B**
-
----
-
-**Q12.** CDS `String(100)` maps to HANA type:
-- A) `VARCHAR(100)`
-- B) `NVARCHAR(100)`
-- C) `TEXT(100)`
-- D) `STRING(100)`
-
-**Answer: B** — HANA uses NVARCHAR (Unicode-capable).
-
----
-
-**Q13.** If HANA deployment fails with "foreign key constraint violated":
-- A) Delete all tables and retry
-- B) Parent/reference tables must be loaded before child tables
-- C) Change all associations to compositions
-- D) Increase HANA memory
-
-**Answer: B**
+```
+┌─────────────────────────────────────────────────────────────┐
+│                APPLICATION ROUTER                             │
+│               (The Front Door)                               │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Browser → https://my-app.cfapps.us10.hanacloud.com         │
+│               │                                             │
+│               ▼                                             │
+│  ┌─────────────────────────────────────────────────┐        │
+│  │          APPROUTER                               │        │
+│  │                                                  │        │
+│  │  1. Handles AUTHENTICATION (login/logout)        │        │
+│  │  2. Manages user SESSION (cookies/tokens)        │        │
+│  │  3. ROUTES requests to the right destination     │        │
+│  │  4. Injects AUTH TOKEN into backend requests     │        │
+│  │  5. Serves STATIC UI files                       │        │
+│  │                                                  │        │
+│  │     /api/* ──────► Backend (CAP service)         │        │
+│  │     /app/* ──────► Static UI files               │        │
+│  │     /login ──────► XSUAA (authentication)        │        │
+│  │                                                  │        │
+│  └─────────────────────────────────────────────────┘        │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-**Q14.** Authentication proves:
-- A) What you can do
-- B) WHO you are (identity verification)
-- C) Where you are located
-- D) How much data you can access
+### Why Do We Need the Approuter?
 
-**Answer: B**
-
----
-
-**Q15.** Authorization determines:
-- A) Your password strength
-- B) WHAT you are allowed to do (permissions)
-- C) Your login time
-- D) Your network speed
-
-**Answer: B**
+| Without Approuter | With Approuter |
+|-------------------|---------------|
+| Each component has a separate URL | Single URL for everything |
+| CORS errors between UI and backend | No CORS (same origin) |
+| User must login to each component | Single Sign-On (login once) |
+| Token management is manual | Approuter handles tokens automatically |
+| UI can't reach backend securely | Approuter forwards with auth token |
+| Hard to deploy consistently | Deploy as one unit (MTA) |
 
 ---
 
-**Q16.** XSUAA issues what type of token?
-- A) Session cookie
-- B) JWT (JSON Web Token) containing identity and scopes
-- C) API key
-- D) SSL certificate
+### The Approuter's 5 Responsibilities
 
-**Answer: B**
+```
+1️⃣  AUTHENTICATION GATEWAY
+    User hits the app → not logged in? → redirect to XSUAA login page
+    After login → store session cookie → user is authenticated
 
----
+2️⃣  SESSION MANAGEMENT
+    Maintains user sessions (cookies)
+    Refreshes expired tokens automatically
+    Handles logout
 
-**Q17.** In `xs-security.json`, the hierarchy from smallest to largest is:
-- A) Role Collection → Role Template → Scope
-- B) Scope → Role Template → Role Collection
-- C) Role Template → Role Collection → Scope
-- D) Scope → Role Collection → Role Template
+3️⃣  REQUEST ROUTING
+    /api/catalog/Products → forward to CAP backend
+    /app/products/index.html → serve static file
+    Based on rules in xs-app.json
 
-**Answer: B** — Scopes (atomic permissions) → Role Templates (bundles) → Role Collections (assigned to users).
+4️⃣  TOKEN INJECTION
+    Before forwarding to backend, adds:
+    Authorization: Bearer <JWT-token>
+    Backend receives the token → knows who the user is
 
----
-
-**Q18.** `@requires: 'authenticated-user'` on a service means:
-- A) Only admins can access
-- B) ANY logged-in user can access (regardless of specific role)
-- C) No authentication needed
-- D) Only users from a specific company
-
-**Answer: B**
-
----
-
-**Q19.** `@restrict: [{ grant: 'READ', to: 'Viewer' }, { grant: '*', to: 'Admin' }]` means:
-- A) Everyone can read and write
-- B) Viewers can ONLY read; Admins can do everything
-- C) Nobody can access
-- D) Viewers and Admins have the same permissions
-
-**Answer: B**
+5️⃣  STATIC FILE SERVING
+    Serves HTML, JS, CSS files for Fiori UI
+    (Or proxies to HTML5 repository)
+```
 
 ---
 
-**Q20.** `where: 'createdBy = $user'` in @restrict:
-- A) Sets createdBy to the current user
-- B) Filters data so users only see records they created (row-level security)
-- C) Validates that createdBy is not null
-- D) Creates a new user
+### The Request Flow — Step by Step
 
-**Answer: B**
+```
+Step 1: User opens https://my-app.cfapps.us10.hana.ondemand.com
+           │
+           ▼
+Step 2: Approuter checks: "Is user logged in?"
+        ├── NO → Redirect to XSUAA login page
+        │         User enters credentials
+        │         XSUAA validates → issues token → redirects back
+        │
+        └── YES → Continue to Step 3
 
----
-
-**Q21.** HTTP status code 401 means:
-- A) Success
-- B) Not Found
-- C) Not Authenticated (no valid login/token)
-- D) Server Error
-
-**Answer: C**
-
----
-
-**Q22.** HTTP status code 403 means:
-- A) Success
-- B) Not Found
-- C) Authenticated but NOT Authorized (wrong role/permission)
-- D) Server Error
-
-**Answer: C**
-
----
-
-**Q23.** To test security locally in CAP, you configure:
-- A) Real XSUAA service
-- B) Mocked users with roles in package.json (`kind: "mocked"`)
-- C) A separate auth server
-- D) Browser cookies
-
-**Answer: B**
+Step 3: Approuter receives the request path:
+        GET /catalog/Products
+           │
+           ▼
+Step 4: Approuter checks xs-app.json routes:
+        Route: "/catalog" → destination: "srv-api"
+           │
+           ▼
+Step 5: Approuter forwards request to backend:
+        GET https://backend-service-url/catalog/Products
+        Authorization: Bearer eyJhbGciOi... (JWT injected!)
+           │
+           ▼
+Step 6: CAP backend receives request + validates JWT
+        Returns data to approuter → approuter returns to browser
+```
 
 ---
 
-**Q24.** `req.user.id` in a handler returns:
-- A) The user's password
-- B) The authenticated user's identity (e.g., email address)
-- C) The database user
-- D) A random number
+### Where Does the Approuter Live?
 
-**Answer: B**
-
----
-
-**Q25.** `$user.attr.Department` in a where clause accesses:
-- A) A field in the entity
-- B) A user attribute configured in xs-security.json (e.g., user's department)
-- C) The department table
-- D) An environment variable
-
-**Answer: B**
-
----
-
-**Q26.** Row-level security ensures:
-- A) Users can't log in
-- B) Users only see the specific RECORDS they're authorized to access
-- C) Tables are encrypted
-- D) Columns are hidden
-
-**Answer: B**
+```
+my-cap-project/
+├── db/                    ← Database layer
+├── srv/                   ← Service layer
+├── app/                   ← UI layer (Fiori apps)
+│   ├── products/          ← Product management UI
+│   └── orders/            ← Order management UI
+├── approuter/             ← 🆕 APPLICATION ROUTER
+│   ├── package.json       ← Approuter dependencies
+│   └── xs-app.json        ← Routing rules
+├── mta.yaml               ← 🆕 Deployment descriptor
+├── xs-security.json       ← Security configuration
+└── package.json           ← Root project
+```
 
 ---
 
-**Q27.** If a new entity is added to a service WITHOUT @restrict:
-- A) It's automatically secured
-- B) ANY authenticated user can perform ALL operations on it (potential security hole!)
-- C) It's invisible
-- D) Only admins can access it
+## Session 2: xs-app.json — Routes & Destinations (10:45 - 12:00)
 
-**Answer: B** — New entities without restrictions inherit only the service-level @requires (which allows all operations for anyone with that role).
+### What is xs-app.json?
 
----
-
-**Q28.** To prevent a user from editing ANOTHER user's record:
-- A) Use @readonly
-- B) `{ grant: 'UPDATE', where: 'createdBy = $user' }` (only update own records)
-- C) Remove the UPDATE button from the UI
-- D) Don't expose the entity
-
-**Answer: B** — Row-level WHERE clause on UPDATE ensures users can only modify their own data.
+`xs-app.json` is the configuration file for the approuter. It defines:
+- Which URL patterns go where (routes)
+- What authentication is needed for each route
+- Which destinations exist (backend services)
 
 ---
 
-**Q29.** Which is a security pitfall?
-- A) Using `req.user.id` to set createdBy
-- B) Trusting client-sent `createdBy` field from the request body
-- C) Adding @restrict to every entity
-- D) Testing with multiple user profiles
+### Basic xs-app.json Structure
 
-**Answer: B** — Never trust client data for authorization decisions. Always use server-validated `req.user`.
+```json
+{
+  "welcomeFile": "/app/products/webapp/index.html",
+  "authenticationMethod": "route",
+  "routes": [
+    {
+      "source": "^/catalog/(.*)$",
+      "target": "/catalog/$1",
+      "destination": "srv-api",
+      "authenticationType": "xsuaa"
+    },
+    {
+      "source": "^/purchasing/(.*)$",
+      "target": "/purchasing/$1",
+      "destination": "srv-api",
+      "authenticationType": "xsuaa"
+    },
+    {
+      "source": "^/app/(.*)$",
+      "target": "$1",
+      "localDir": "resources",
+      "authenticationType": "xsuaa"
+    }
+  ]
+}
+```
 
 ---
 
-**Q30.** The correct order of security checks in CAP is:
-- A) Authorization → Authentication → Query
-- B) Authentication → Service @requires → Entity @restrict → WHERE filter → Response
-- C) Query → Authentication → Response
-- D) Response → Authorization → Authentication
+### Breaking Down Each Part
 
-**Answer: B** — First verify identity, then check service access, then entity permissions, then row-level filtering.
+#### `welcomeFile`
+```json
+"welcomeFile": "/app/products/webapp/index.html"
+```
+The first page shown when a user opens the app without a specific path.
+
+---
+
+#### `authenticationMethod`
+```json
+"authenticationMethod": "route"
+```
+- `"route"` → Each route defines its own auth requirement (most common)
+- `"none"` → No authentication for any route (for public apps)
+
+---
+
+#### Routes — The Routing Rules
+
+Each route is a rule: "If the URL matches THIS pattern → send it THERE."
+
+```json
+{
+  "source": "^/catalog/(.*)$",
+  "target": "/catalog/$1",
+  "destination": "srv-api",
+  "authenticationType": "xsuaa"
+}
+```
+
+| Property | Meaning | Example |
+|----------|---------|---------|
+| `source` | URL pattern to match (regex) | `^/catalog/(.*)$` matches `/catalog/Products` |
+| `target` | Where to forward (rewrite path) | `/catalog/$1` → `/catalog/Products` |
+| `destination` | Which backend to send it to | `srv-api` (defined in mta.yaml) |
+| `authenticationType` | Auth requirement | `xsuaa` (login required) or `none` |
+| `localDir` | Serve from local folder (static files) | `resources` folder |
+
+---
+
+### Understanding Route Patterns (Regex)
+
+```
+"source": "^/catalog/(.*)$"
+
+^        → Start of string
+/catalog → Literal match
+/(.*)    → Capture everything after /catalog/
+$        → End of string
+
+Examples that MATCH:
+  /catalog/Products         → $1 = "Products"
+  /catalog/Products(uuid)   → $1 = "Products(uuid)"
+  /catalog/$metadata        → $1 = "$metadata"
+
+"target": "/catalog/$1"
+  → Forwards: /catalog/Products → /catalog/Products (same path to backend)
+```
+
+---
+
+### Common Route Configurations
+
+```json
+{
+  "routes": [
+    // Route 1: Backend API (authenticated)
+    {
+      "source": "^/api/(.*)$",
+      "target": "$1",
+      "destination": "srv-api",
+      "authenticationType": "xsuaa",
+      "csrfProtection": true
+    },
+
+    // Route 2: Static UI files (authenticated)
+    {
+      "source": "^/app/(.*)$",
+      "target": "$1",
+      "localDir": "resources",
+      "authenticationType": "xsuaa"
+    },
+
+    // Route 3: Public health check (no auth)
+    {
+      "source": "^/health$",
+      "target": "/health",
+      "destination": "srv-api",
+      "authenticationType": "none"
+    },
+
+    // Route 4: Catch-all (serve index.html for SPA routing)
+    {
+      "source": "^(.*)$",
+      "target": "$1",
+      "localDir": "resources",
+      "authenticationType": "xsuaa"
+    }
+  ]
+}
+```
+
+**Route order matters!** Routes are checked top-to-bottom. First match wins.
+
+---
+
+### Destinations — Where Backends Live
+
+A **destination** is a named reference to a backend service URL. Defined in `mta.yaml` (not in xs-app.json):
+
+```
+xs-app.json says:  "destination": "srv-api"
+mta.yaml defines:  srv-api → https://my-service.cfapps.us10.hana.ondemand.com
+```
+
+This way, xs-app.json doesn't hardcode URLs — they're resolved at deployment time.
+
+---
+
+### Authentication Flow Through the Approuter
+
+```
+Browser                    Approuter                   XSUAA                    CAP Backend
+  │                           │                         │                          │
+  │  GET /catalog/Products    │                         │                          │
+  │──────────────────────────►│                         │                          │
+  │                           │  (No session cookie)    │                          │
+  │  ◄─── 302 Redirect ──────│                         │                          │
+  │                           │                         │                          │
+  │  GET /oauth/authorize     │                         │                          │
+  │───────────────────────────────────────────────────►│                          │
+  │                           │                         │  (Login page shown)      │
+  │  POST /oauth/token (credentials)                   │                          │
+  │───────────────────────────────────────────────────►│                          │
+  │                           │                         │  ✅ Validated!           │
+  │  ◄──── JWT Token + Redirect ────────────────────── │                          │
+  │                           │                         │                          │
+  │  GET /catalog/Products    │                         │                          │
+  │  (with session cookie)    │                         │                          │
+  │──────────────────────────►│                         │                          │
+  │                           │  Forward + JWT token    │                          │
+  │                           │─────────────────────────────────────────────────►  │
+  │                           │                         │                          │
+  │                           │  ◄──────── Data ────────────────────────────────── │
+  │  ◄──────── Data ─────────│                         │                          │
+  │                           │                         │                          │
+```
+
+---
+
+## Session 3: Hands-on — Add Approuter to Your CAP Project (12:00 - 13:00)
+
+### Step 1: Add Approuter Configuration
+
+```bash
+cd ~/projects/po-management
+
+# CAP generates the approuter setup:
+cds add approuter
+```
+
+This creates:
+```
+app/
+└── router/               ← OR approuter/ (depending on version)
+    ├── package.json      ← Dependencies for @sap/approuter
+    └── xs-app.json       ← Routing configuration
+```
+
+---
+
+### Step 2: Review Generated xs-app.json
+
+```bash
+cat app/router/xs-app.json
+```
+
+Typical generated content:
+```json
+{
+  "welcomeFile": "/index.html",
+  "authenticationMethod": "route",
+  "routes": [
+    {
+      "source": "^/purchasing/(.*)$",
+      "target": "/purchasing/$1",
+      "destination": "po-management-srv",
+      "authenticationType": "xsuaa",
+      "csrfProtection": true
+    },
+    {
+      "source": "^/catalog/(.*)$",
+      "target": "/catalog/$1",
+      "destination": "po-management-srv",
+      "authenticationType": "xsuaa"
+    },
+    {
+      "source": "^(.*)$",
+      "target": "$1",
+      "service": "html5-apps-repo-rt",
+      "authenticationType": "xsuaa"
+    }
+  ]
+}
+```
+
+---
+
+### Step 3: Review Approuter package.json
+
+```bash
+cat app/router/package.json
+```
+
+```json
+{
+  "name": "po-management-approuter",
+  "dependencies": {
+    "@sap/approuter": "^14"
+  },
+  "scripts": {
+    "start": "node node_modules/@sap/approuter/approuter.js"
+  }
+}
+```
+
+The approuter is just the `@sap/approuter` npm package with your `xs-app.json` config!
+
+---
+
+### Step 4: Test Locally (Simplified)
+
+For local development, `cds watch` handles routing for you automatically. The approuter is mainly needed in production (Cloud Foundry deployment).
+
+To test the approuter locally:
+```bash
+# Install approuter dependencies
+cd app/router
+npm install
+cd ../..
+
+# Run everything together
+cds watch
+```
+
+CAP's development server mimics the approuter behavior locally — you don't need to run the actual approuter for development.
