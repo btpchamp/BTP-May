@@ -5,10 +5,6 @@
 A comprehensive upskilling program covering SAP BTP and the CAP framework, designed for freshers with no prior coding experience.
 
 
-
-git remote set-url origin https://btpchamp:@github.com/btpchamp/BTP-May.git
-
-
 ---
 
 ## Program Overview
